@@ -1,7 +1,56 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
-import { api, gb, Count, Preset, Preview, Sender, Storage, Suggestion, TrashResult } from "./api";
+import { api, gb, BatchProgress, Count, Preset, Preview, Sender, Storage, Suggestion, TrashProgress } from "./api";
 
-type Status = { kind: "idle" | "counting" | "working" | "ok" | "err"; text?: string };
+type Progress = { label: string; current: number; total?: number };
+type Status = {
+  kind: "idle" | "counting" | "working" | "ok" | "err";
+  text?: string;
+  progress?: Progress;
+};
+const SLOW_AT = 50_000; // past this many messages, warn that the action takes minutes
+
+/** Status text plus, while working, a progress bar with a running count. */
+function RowFeedback({ s }: { s: Status }) {
+  if (!s.text && !s.progress) return null;
+  const p = s.progress;
+  const pct = p?.total ? Math.min(100, (p.current / p.total) * 100) : undefined;
+  const slow = p && Math.max(p.current, p.total ?? 0) >= SLOW_AT;
+  return (
+    <div className={`status ${s.kind}`}>
+      {p ? (
+        <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          <div className="progress-text">
+            <strong>{p.label}</strong>{" "}
+            {p.current.toLocaleString()}
+            {p.total ? ` of ${p.total.toLocaleString()}` : " found"}
+            {slow && <span className="slow"> · Over 50,000 messages. This can take a few minutes.</span>}
+          </div>
+          <div className={`progress-bar ${pct === undefined ? "indeterminate" : ""}`}>
+            <div style={pct === undefined ? undefined : { width: `${pct}%` }} />
+          </div>
+        </div>
+      ) : (
+        s.text
+      )}
+    </div>
+  );
+}
+
+/** Drive a streamed batch op (undo / delete) and report progress. */
+async function runBatch(
+  stream: AsyncGenerator<BatchProgress>,
+  field: "restored" | "deleted",
+  label: string,
+  onProgress: (p: Progress) => void
+): Promise<number> {
+  let n = 0;
+  for await (const line of stream) {
+    if (line.error) throw new Error(line.error);
+    n = line[field] ?? n;
+    onProgress({ label, current: n, total: line.total });
+  }
+  return n;
+}
 
 export default function App() {
   const [email, setEmail] = useState<string | null>(null);
@@ -108,7 +157,7 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
       <QueryBuilder ref={builderRef} seed={seed} onTrashed={onTrashed} />
       <Senders
         aiEnabled={aiEnabled}
-        onTrashed={(n, bytes, sender) => onTrashed({ trashed: n, bytes, ids: [], label: sender, query: "" })}
+        onTrashed={(n, bytes, sender, ids) => onTrashed({ trashed: n, bytes, ids, label: sender, query: "" })}
       />
       <EmptyTrash
         trashedThisSession={trashedThisSession}
@@ -205,13 +254,27 @@ function useQueryActions(onTrashed: (t: Trashed) => void) {
     key: string,
     label: string,
     query: string,
-    run: () => Promise<TrashResult>,
+    open: () => AsyncGenerator<TrashProgress>,
     after?: () => void
   ) => {
     if (!confirm(`Move every message matching "${query}" to Trash?`)) return;
-    set(key, { kind: "working", text: "Trashing in batches of 1,000…" });
+    set(key, { kind: "working", progress: { label: "Finding messages…", current: 0 } });
     try {
-      const { trashed, ids } = await run();
+      let trashed = 0;
+      let ids: string[] = [];
+      for await (const line of open()) {
+        if (line.error) throw new Error(line.error);
+        if (line.phase === "listing") {
+          set(key, { kind: "working", progress: { label: "Finding messages…", current: line.found ?? 0 } });
+        } else {
+          trashed = line.trashed ?? trashed;
+          set(key, {
+            kind: "working",
+            progress: { label: "Moving to Trash…", current: trashed, total: line.total },
+          });
+        }
+        if (line.done) ids = line.ids ?? [];
+      }
       const bytes = trashed * (counts[key]?.avg_bytes ?? 0);
       onTrashed({ trashed, bytes, ids, label, query });
       setCounts(({ [key]: _, ...rest }) => rest);
@@ -337,7 +400,7 @@ function Presets({
                   Trash all
                 </button>
               </div>
-              {s.text && <div className={`status ${s.kind}`}>{s.text}</div>}
+              <RowFeedback s={s} />
               {counts[p.key]?.preview && counts[p.key].count > 0 && (
                 <PreviewPanel p={counts[p.key].preview!} total={counts[p.key].count} />
               )}
@@ -538,7 +601,7 @@ const QueryBuilder = forwardRef<
               Trash all
             </button>
           </div>
-          {s.text && <div className={`status ${s.kind}`}>{s.text}</div>}
+          <RowFeedback s={s} />
           {counts[key]?.preview && counts[key].count > 0 && (
             <PreviewPanel p={counts[key].preview!} total={counts[key].count} />
           )}
@@ -569,7 +632,7 @@ function Senders({
   onTrashed,
   aiEnabled,
 }: {
-  onTrashed: (n: number, bytes: number, sender: string) => void;
+  onTrashed: (n: number, bytes: number, sender: string, ids: string[]) => void;
   aiEnabled: boolean;
 }) {
   const [senders, setSenders] = useState<Sender[] | null>(null);
@@ -604,8 +667,18 @@ function Senders({
     if (!confirm(`Trash every message from ${s.address}?`)) return;
     setRowStatus((r) => ({ ...r, [s.address]: "trashing…" }));
     try {
-      const { trashed } = await api.queryTrash(`from:${s.address}`);
-      onTrashed(trashed, s.estimated_bytes * (trashed / Math.max(1, s.count)), `From ${s.address}`);
+      let trashed = 0;
+      let ids: string[] = [];
+      for await (const line of api.queryTrash(`from:${s.address}`)) {
+        if (line.error) throw new Error(line.error);
+        trashed = line.trashed ?? trashed;
+        if (line.done) ids = line.ids ?? [];
+        setRowStatus((r) => ({
+          ...r,
+          [s.address]: line.phase === "listing" ? `finding… ${line.found ?? 0}` : `trashing… ${trashed}`,
+        }));
+      }
+      onTrashed(trashed, s.estimated_bytes * (trashed / Math.max(1, s.count)), `From ${s.address}`, ids);
       setRowStatus((r) => ({ ...r, [s.address]: `trashed ${trashed}` }));
     } catch (e) {
       setRowStatus((r) => ({ ...r, [s.address]: String(e) }));
@@ -710,30 +783,41 @@ function EmptyTrash({
 }) {
   const [typed, setTyped] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
-  const [undoing, setUndoing] = useState<Record<number, string>>({});
+  const [work, setWork] = useState<Record<number, Status>>({});
+  const setW = (id: number, st: Status | undefined) =>
+    setWork((w) => {
+      const { [id]: _, ...rest } = w;
+      return st ? { ...rest, [id]: st } : rest;
+    });
+  const busy = (id: number) => work[id]?.kind === "working";
 
   const undo = async (e: TrashEntry) => {
-    setUndoing((u) => ({ ...u, [e.id]: "restoring…" }));
+    setW(e.id, { kind: "working", progress: { label: "Restoring…", current: 0, total: e.count } });
     try {
-      const { restored } = await api.untrash(e.ids);
+      const restored = await runBatch(api.untrash(e.ids), "restored", "Restoring…", (p) =>
+        setW(e.id, { kind: "working", progress: p })
+      );
+      setW(e.id, undefined);
       onRestored(e, restored);
     } catch (err) {
-      setUndoing((u) => ({ ...u, [e.id]: String(err) }));
+      setW(e.id, { kind: "err", text: String(err) });
     }
   };
 
   const deleteEntry = async (e: TrashEntry) => {
     if (!confirm(`Permanently delete ${e.count.toLocaleString()} messages from "${e.label}"? This cannot be undone.`))
       return;
-    setUndoing((u) => ({ ...u, [e.id]: "deleting…" }));
+    setW(e.id, { kind: "working", progress: { label: "Deleting forever…", current: 0, total: e.count } });
     try {
-      await api.deleteIds(e.ids);
+      await runBatch(api.deleteIds(e.ids), "deleted", "Deleting forever…", (p) =>
+        setW(e.id, { kind: "working", progress: p })
+      );
+      setW(e.id, undefined);
       onDeleted(e);
     } catch (err) {
-      setUndoing((u) => ({ ...u, [e.id]: String(err) }));
+      setW(e.id, { kind: "err", text: String(err) });
     }
   };
-  const working = (id: number) => undoing[id] === "restoring…" || undoing[id] === "deleting…";
 
   const run = async () => {
     setStatus({ kind: "working", text: "Deleting permanently…" });
@@ -775,20 +859,18 @@ function EmptyTrash({
               <div style={{ display: "flex", gap: 8 }}>
                 {e.ids.length > 0 ? (
                   <>
-                    <button className="btn" disabled={working(e.id)} onClick={() => undo(e)}>
-                      Undo
+                    <button className="btn" disabled={busy(e.id)} onClick={() => undo(e)}>
+                      {work[e.id]?.progress?.label === "Restoring…" ? "Restoring…" : "Undo"}
                     </button>
-                    <button className="btn danger" disabled={working(e.id)} onClick={() => deleteEntry(e)}>
-                      Delete forever
+                    <button className="btn danger" disabled={busy(e.id)} onClick={() => deleteEntry(e)}>
+                      {work[e.id]?.progress?.label === "Deleting forever…" ? "Deleting…" : "Delete forever"}
                     </button>
                   </>
                 ) : (
                   <span className="hint">manage in Gmail</span>
                 )}
               </div>
-              {undoing[e.id] && (
-                <div className={`status ${working(e.id) ? "" : "err"}`}>{undoing[e.id]}</div>
-              )}
+              {work[e.id] && <RowFeedback s={work[e.id]} />}
             </div>
           ))}
         </div>

@@ -1,4 +1,5 @@
 const BASE = "";
+const JSON_H = { "Content-Type": "application/json" };
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(BASE + path, {
@@ -27,7 +28,22 @@ export type Count = {
   preview?: Preview | null; // final line only: who/when/what, from the same sample
   error?: string;
 };
-export type TrashResult = { trashed: number; query: string; ids: string[] };
+export type TrashProgress = {
+  phase: "listing" | "trashing" | "done";
+  found?: number; // listing: ids found so far
+  trashed?: number; // trashing/done: moved so far
+  total?: number;
+  ids?: string[]; // done: every id moved, kept by the browser for undo
+  done: boolean;
+  error?: string;
+};
+export type BatchProgress = {
+  restored?: number;
+  deleted?: number;
+  total?: number;
+  done: boolean;
+  error?: string;
+};
 
 /** Read an NDJSON response line by line. */
 export async function* ndjson<T>(path: string, init?: RequestInit): AsyncGenerator<T> {
@@ -72,7 +88,7 @@ export const api = {
   storage: () => req<Storage>("/api/storage"),
   presets: () => req<Preset[]>("/api/presets"),
   presetCount: (k: string, signal?: AbortSignal) => ndjson<Count>(`/api/presets/${k}/count`, { signal }),
-  presetTrash: (k: string) => req<TrashResult>(`/api/presets/${k}/trash`, { method: "POST" }),
+  presetTrash: (k: string) => ndjson<TrashProgress>(`/api/presets/${k}/trash`, { method: "POST" }),
   queryCount: (query: string, signal?: AbortSignal) =>
     ndjson<Count>("/api/query/count", {
       method: "POST",
@@ -81,12 +97,13 @@ export const api = {
       signal,
     }),
   queryTrash: (query: string) =>
-    req<TrashResult>("/api/query/trash", { method: "POST", body: JSON.stringify({ query }) }),
+    ndjson<TrashProgress>("/api/query/trash", { method: "POST", headers: JSON_H, body: JSON.stringify({ query }) }),
   untrash: (ids: string[]) =>
-    req<{ restored: number }>("/api/untrash", { method: "POST", body: JSON.stringify({ ids }) }),
+    ndjson<BatchProgress>("/api/untrash", { method: "POST", headers: JSON_H, body: JSON.stringify({ ids }) }),
   deleteIds: (ids: string[]) =>
-    req<{ deleted: number }>("/api/delete", {
+    ndjson<BatchProgress>("/api/delete", {
       method: "POST",
+      headers: JSON_H,
       body: JSON.stringify({ ids, confirm: "DELETE FOREVER" }),
     }),
   senders: (sample = 1000) => req<Sender[]>(`/api/senders?sample=${sample}`),

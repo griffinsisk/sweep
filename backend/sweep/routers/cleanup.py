@@ -26,31 +26,35 @@ async def list_presets():
     return PRESETS
 
 
-def _count_stream(request: Request, query: str) -> StreamingResponse:
-    """NDJSON: one progress line per 500-id page, then a final line with
-    done=true and avg_bytes. Manages its own Gmail client because the
-    response body runs after request-scoped dependencies have exited."""
+def _ndjson(request: Request, what: str, open) -> StreamingResponse:
+    """Stream an async generator of dicts as NDJSON. Manages its own Gmail
+    client because the response body runs after request-scoped dependencies
+    have exited. Errors become a final line, never a broken stream."""
     session = read_session(request)
 
     async def body():
         gmail = Gmail(session)
         try:
-            async for line in gmail.count_stream(query):
+            async for line in open(gmail):
                 yield json.dumps(line) + "\n"
         except HTTPException as e:
-            log.error("count failed for %r: %s", query, e.detail)
+            log.error("%s failed: %s", what, e.detail)
             yield json.dumps({"error": e.detail, "done": True}) + "\n"
         except ValueError:  # Google answered 200 with a body that is not JSON
-            log.warning("count for %r hit an unparseable Google response", query)
-            msg = "Google sent an unreadable response partway through. Run the count again."
+            log.warning("%s hit an unparseable Google response", what)
+            msg = "Google sent an unreadable response partway through. Try again."
             yield json.dumps({"error": msg, "done": True}) + "\n"
         except Exception as e:  # anything else must still reach the UI as a line
-            log.exception("count crashed for %r", query)
+            log.exception("%s crashed", what)
             yield json.dumps({"error": f"{type(e).__name__}: {e}", "done": True}) + "\n"
         finally:
             await gmail.close()
 
     return StreamingResponse(body(), media_type="application/x-ndjson")
+
+
+def _count_stream(request: Request, query: str) -> StreamingResponse:
+    return _ndjson(request, f"count {query!r}", lambda g: g.count_stream(query))
 
 
 @router.get("/presets/{key}/count")
@@ -59,20 +63,13 @@ async def preset_count(key: str, request: Request):
     return _count_stream(request, preset.query)
 
 
-class TrashResult(BaseModel):
-    trashed: int
-    query: str
-    ids: list[str]  # held by the browser so the row can undo this exact action
-
-
-@router.post("/presets/{key}/trash", response_model=TrashResult)
-async def preset_trash(key: str, gmail: Gmail = Depends(gmail_client)):
-    """List every matching id, then trash in 1,000-message batches.
-    60k messages ≈ 120 list calls + 60 batchModify calls."""
+@router.post("/presets/{key}/trash")
+async def preset_trash(key: str, request: Request):
+    """NDJSON: listing progress, then trashing progress, then a final line
+    with the ids so the browser can undo. 60k messages is ~120 list calls
+    and 60 batchModify calls, three at a time."""
     preset = PRESET_INDEX.get(key) or _404(key)
-    ids = await gmail.list_message_ids(preset.query)
-    n = await gmail.trash(ids)
-    return TrashResult(trashed=n, query=preset.query, ids=ids)
+    return _ndjson(request, f"trash {preset.query!r}", lambda g: g.trash_stream(preset.query))
 
 
 class QueryBody(BaseModel):
@@ -84,11 +81,9 @@ async def query_count(body: QueryBody, request: Request):
     return _count_stream(request, body.query)
 
 
-@router.post("/query/trash", response_model=TrashResult)
-async def query_trash(body: QueryBody, gmail: Gmail = Depends(gmail_client)):
-    ids = await gmail.list_message_ids(body.query)
-    n = await gmail.trash(ids)
-    return TrashResult(trashed=n, query=body.query, ids=ids)
+@router.post("/query/trash")
+async def query_trash(body: QueryBody, request: Request):
+    return _ndjson(request, f"trash {body.query!r}", lambda g: g.trash_stream(body.query))
 
 
 class IdsBody(BaseModel):
@@ -100,36 +95,21 @@ class DeleteBody(IdsBody):
 
 
 @router.post("/untrash")
-async def untrash(body: IdsBody, gmail: Gmail = Depends(gmail_client)):
+async def untrash(body: IdsBody, request: Request):
     """Reverse a trash action: the ids come back from the browser that ran it."""
     if len(body.ids) > 100_000:
         raise HTTPException(400, "Too many ids in one undo")
-    return {"restored": await gmail.untrash(body.ids)}
+    return _ndjson(request, "untrash", lambda g: g.untrash_stream(body.ids))
 
 
 @router.post("/delete")
-async def delete_ids(body: DeleteBody, gmail: Gmail = Depends(gmail_client)):
+async def delete_ids(body: DeleteBody, request: Request):
     """Permanently delete one earlier trash action's messages. Irreversible."""
     if body.confirm != "DELETE FOREVER":
         raise HTTPException(400, 'Type "DELETE FOREVER" to confirm')
     if len(body.ids) > 100_000:
         raise HTTPException(400, "Too many ids in one delete")
-    return {"deleted": await gmail.delete_forever(body.ids)}
-
-
-class EmptyTrashBody(BaseModel):
-    confirm: str  # must equal "DELETE FOREVER"
-
-
-@router.post("/trash/empty")
-async def empty_trash(body: EmptyTrashBody, gmail: Gmail = Depends(gmail_client)):
-    """Permanently delete everything in Trash. This is the step that
-    actually frees storage — and the one you can't undo."""
-    if body.confirm != "DELETE FOREVER":
-        raise HTTPException(400, 'Type "DELETE FOREVER" to confirm')
-    ids = await gmail.list_message_ids("in:trash")
-    n = await gmail.delete_forever(ids)
-    return {"deleted": n}
+    return _ndjson(request, "delete", lambda g: g.delete_stream(body.ids))
 
 
 def _404(key: str):

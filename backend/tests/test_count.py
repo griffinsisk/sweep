@@ -148,20 +148,35 @@ def test_delete_endpoint_requires_exact_confirmation(monkeypatch):
 
     calls: list[list[str]] = []
 
-    class FakeGmail:
-        async def delete_forever(self, ids):
-            calls.append(ids)
-            return len(ids)
+    async def fake_request(self, method, url, **kw):
+        calls.append(kw["json"]["ids"])
+        return httpx.Response(200, json={})
 
-    async def fake_client():
-        yield FakeGmail()
-
-    main.app.dependency_overrides[cleanup.gmail_client] = fake_client
-    try:
-        with TestClient(main.app) as c:
-            bad = c.post("/api/delete", json={"ids": ["1"], "confirm": "delete forever"})
-            good = c.post("/api/delete", json={"ids": ["1", "2"], "confirm": "DELETE FOREVER"})
-    finally:
-        main.app.dependency_overrides.clear()
+    monkeypatch.setattr(cleanup, "read_session", lambda req: Session("t", None, "x@y"))
+    monkeypatch.setattr(Gmail, "_request", fake_request)
+    with TestClient(main.app) as c:
+        bad = c.post("/api/delete", json={"ids": ["1"], "confirm": "delete forever"})
+        good = c.post("/api/delete", json={"ids": ["1", "2"], "confirm": "DELETE FOREVER"})
     assert bad.status_code == 400 and calls == [["1", "2"]]
-    assert good.json() == {"deleted": 2}
+    lines = [json.loads(x) for x in good.text.strip().split("\n")]
+    assert lines[-1] == {"deleted": 2, "total": 2, "done": True}
+
+
+async def test_trash_stream_reports_both_phases_then_ids():
+    pages = iter([_page(500, True), _page(700, False)])
+    batches: list[int] = []
+
+    async def fake_request(method, url, **kw):
+        if url.endswith("/messages"):
+            return httpx.Response(200, json=next(pages))
+        batches.append(len(kw["json"]["ids"]))
+        return httpx.Response(200, json={})
+
+    g = Gmail(Session(access_token="t", refresh_token=None, email="x@y"))
+    g._request = fake_request  # type: ignore[method-assign]
+    lines = [x async for x in g.trash_stream("q")]
+    assert [x["phase"] for x in lines] == ["listing", "listing", "trashing", "done"]
+    assert lines[1]["found"] == 1200
+    assert lines[2] == {"phase": "trashing", "trashed": 1200, "total": 1200, "done": False}
+    assert lines[3]["trashed"] == 1200 and len(lines[3]["ids"]) == 1200
+    assert sorted(batches) == [200, 1000]

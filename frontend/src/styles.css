@@ -74,6 +74,19 @@ section > p.lede { color: var(--muted); margin: 0 0 20px; max-width: 60ch; }
 .row .status { grid-column: 1 / -1; font-size: 13px; color: var(--muted); margin-top: -6px; }
 .row .status.ok { color: var(--freed); }
 .row .status.err { color: var(--danger); }
+.row .status.working { color: var(--ink); margin-top: 4px; }
+.progress { width: 100%; }
+.progress-text { font-size: 13px; margin-bottom: 6px; }
+.progress-text strong { font-weight: 700; }
+.progress-text .slow { color: var(--muted); }
+.progress-bar { height: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.progress-bar > div { height: 100%; background: var(--used); transition: width 300ms ease; }
+.progress-bar.indeterminate > div {
+  width: 40%;
+  background: repeating-linear-gradient(135deg, var(--used) 0 6px, var(--pending) 6px 12px);
+  animation: slide 1.2s linear infinite;
+}
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 .row .status .linkish { color: var(--used); font-size: 13px; font-weight: 600; }
 .row .preview { grid-column: 1 / -1; font-size: 13px; }
 .row .preview > .linkish { font-size: 13px; }

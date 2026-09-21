@@ -245,31 +245,75 @@ class Gmail:
 
     # ---- writes ------------------------------------------------------------
 
+    # Each batchModify / batchDelete costs 50 quota units against 250/sec per
+    # user, so three in flight is the most Gmail will sustain without 429s.
+    BATCH_CONCURRENCY = 3
+    TRASH_BODY = {"addLabelIds": ["TRASH"], "removeLabelIds": ["INBOX", "UNREAD"]}
+    UNTRASH_BODY = {"removeLabelIds": ["TRASH"]}
+
+    async def _batch_stream(
+        self, ids: list[str], endpoint: str, body: dict[str, Any]
+    ) -> AsyncIterator[int]:
+        """Apply one batch endpoint to ids, 1,000 per call, a few calls at a
+        time. Yields the running total after each window completes."""
+        chunks = list(_chunks(ids, BATCH_MODIFY_MAX))
+        done = 0
+        for i in range(0, len(chunks), self.BATCH_CONCURRENCY):
+            window = chunks[i : i + self.BATCH_CONCURRENCY]
+            await asyncio.gather(
+                *(self._request("POST", f"{GMAIL}/messages/{endpoint}", json={"ids": c, **body})
+                  for c in window)
+            )
+            done += sum(len(c) for c in window)
+            yield done
+
+    async def trash_stream(self, query: str) -> AsyncIterator[dict[str, Any]]:
+        """List every id for query, then trash them. Progress lines for both
+        phases, then a final line carrying the ids so the browser can undo."""
+        ids: list[str] = []
+        token: str | None = None
+        while True:
+            params: dict[str, Any] = {"q": query, "maxResults": 500, "fields": "nextPageToken,messages/id"}
+            if token:
+                params["pageToken"] = token
+            data = (await self._request("GET", f"{GMAIL}/messages", params=params)).json()
+            ids.extend(m["id"] for m in data.get("messages", []))
+            token = data.get("nextPageToken")
+            yield {"phase": "listing", "found": len(ids), "done": False}
+            if not token:
+                break
+        async for n in self._batch_stream(ids, "batchModify", self.TRASH_BODY):
+            yield {"phase": "trashing", "trashed": n, "total": len(ids), "done": False}
+        yield {"phase": "done", "trashed": len(ids), "total": len(ids), "ids": ids, "done": True}
+
+    async def untrash_stream(self, ids: list[str]) -> AsyncIterator[dict[str, Any]]:
+        """Undo trash(): drop the TRASH label so messages return to All Mail.
+        INBOX is not re-added; mail that was archived before stays archived."""
+        async for n in self._batch_stream(ids, "batchModify", self.UNTRASH_BODY):
+            yield {"restored": n, "total": len(ids), "done": False}
+        yield {"restored": len(ids), "total": len(ids), "done": True}
+
+    async def delete_stream(self, ids: list[str]) -> AsyncIterator[dict[str, Any]]:
+        """Permanently delete. Irreversible. Caller must hard-confirm."""
+        async for n in self._batch_stream(ids, "batchDelete", {}):
+            yield {"deleted": n, "total": len(ids), "done": False}
+        yield {"deleted": len(ids), "total": len(ids), "done": True}
+
     async def trash(self, ids: list[str]) -> int:
         """Move messages to Trash, 1,000 per API call."""
-        for chunk in _chunks(ids, BATCH_MODIFY_MAX):
-            await self._request(
-                "POST",
-                f"{GMAIL}/messages/batchModify",
-                json={"ids": chunk, "addLabelIds": ["TRASH"], "removeLabelIds": ["INBOX", "UNREAD"]},
-            )
+        async for _ in self._batch_stream(ids, "batchModify", self.TRASH_BODY):
+            pass
         return len(ids)
 
     async def untrash(self, ids: list[str]) -> int:
-        """Undo trash(): drop the TRASH label so messages return to All Mail.
-        INBOX is not re-added; mail that was archived before stays archived."""
-        for chunk in _chunks(ids, BATCH_MODIFY_MAX):
-            await self._request(
-                "POST",
-                f"{GMAIL}/messages/batchModify",
-                json={"ids": chunk, "removeLabelIds": ["TRASH"]},
-            )
+        async for _ in self._batch_stream(ids, "batchModify", self.UNTRASH_BODY):
+            pass
         return len(ids)
 
     async def delete_forever(self, ids: list[str]) -> int:
-        """Permanently delete. Irreversible. Frontend must hard-confirm."""
-        for chunk in _chunks(ids, BATCH_MODIFY_MAX):
-            await self._request("POST", f"{GMAIL}/messages/batchDelete", json={"ids": chunk})
+        """Permanently delete everything in ids. Irreversible."""
+        async for _ in self._batch_stream(ids, "batchDelete", {}):
+            pass
         return len(ids)
 
 
