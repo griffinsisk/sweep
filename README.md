@@ -12,7 +12,7 @@ Welp, from my experience clearing up space in Gmail can be a tedious process. If
 
 ## What Sweep does
 
-Sweep clears out years of Gmail in minutes. It runs on your own computer, talks straight to Gmail, and moves mail in batches of 1,000 instead of 50.
+Sweep clears out years of Gmail in minutes. It runs on your own computer, talks straight to Gmail, and moves/deletes mail in batches of 1,000 instead of hitting "select all" on 50 per page.
 
 - **Count before you act.** Pick "Promotions older than a year." Sweep tells you email count, roughly how many GB, and who sent them before you touch anything.
 - **Then trash it.** Tens of thousands of messages deleted with one button.
