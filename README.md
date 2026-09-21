@@ -23,7 +23,7 @@ Nothing is stored anywhere. Your Gmail token lives in your browser and dies when
 
 ## Get started
 
-You'll need a Google Cloud project of your own. That sounds worse than it is: about ten minutes, once, and [SETUP.md](SETUP.md) walks you through every click. Google requires it because Sweep asks for the permission that can permanently delete mail, and Google does not hand that out to apps it hasn't audited.
+You'll need a Google Cloud project of your own. Takes about ten minutes, and [SETUP.md](SETUP.md) walks you through every click. Google requires it because Sweep asks for the permission that can permanently delete mail, and Google does not hand that out to apps it hasn't audited.
 
 Then:
 
