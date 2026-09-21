@@ -4,7 +4,7 @@ Have you been a long-time Google user and one day logged into Gmail only to find
 
 <img src="docs/out-of-storage.png" alt="Gmail banner: Out of storage. Emails will stop on Oct 9, 2026. 15.04 GB of 15 GB used." width="760">
 
-Fourteen years of newsletters. Every "your order has shipped." A 2017 video attachment of your Mom's new puppy because she hasn't quite figured out how to use cell phone just yet...
+Fourteen years of newsletters. Every "your order has shipped." A 2017 video attachment of your Mom's new puppy because she hasn't quite figured out how to use a cell phone just yet...
 
 From my experience deleting clearing up space in Gmail can be a painful process. If you agree, today you're in luck.
 
