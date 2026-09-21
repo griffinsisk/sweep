@@ -6,16 +6,27 @@
 
 ## v1 — "done" means
 
-- [ ] One command installs and runs it locally; the only external setup is the Google Cloud project
-- [ ] Sign in with Google, see storage used / total
-- [ ] Run any preset: preview a count, trash in batches of 1,000 via `batchModify`
-- [ ] Senders view: top 50 senders by count, trash-all per sender, unsubscribe link where present
-- [ ] Claude suggestions per sender (keep / unsubscribe / trash + reason), applied only on confirmation
-- [ ] Empty trash with a typed confirmation
-- [ ] "Freed this session" counter
-- [ ] README, architecture write-up, 2-minute demo video
+- [x] One command installs and runs it locally; the only external setup is the Google Cloud project
+- [x] Sign in with Google, see storage used / total
+- [x] Run any preset: exact streamed count with size estimate and preview, trash in batches of 1,000 via `batchModify`
+- [x] Build a custom query without knowing Gmail syntax
+- [x] Undo or permanently delete any single action; review it in Gmail
+- [x] Senders view: top 50 senders by count, trash-all per sender, unsubscribe link where present
+- [x] Claude suggestions per sender (keep / unsubscribe / trash + reason), applied only on confirmation — built, not yet exercised with a live key
+- [x] Empty trash with a typed confirmation
+- [x] "Freed this session" with Google-confirmed figure alongside the estimate
+- [x] README and architecture write-up
+- [ ] 2-minute demo video
 
-Everything else is v2.
+## v1.1 — polish the loop
+
+- [ ] Senders view: real per-sender totals and a configurable age and sample size — the counts mean what they look like they mean
+- [ ] Claude "anything I should keep?" on a query's preview sample — flags the bank, the school, the doctor hiding inside a promotions query before you trash it
+- [ ] First-time-user timing of SETUP.md with screenshots where people stall
+
+## v2 — MCP server
+
+- [ ] `sweep-mcp`: count, trash, senders, untrash, empty-trash tools over the same Gmail session, with the same confirmation gates — Claude Desktop can run "show me who fills my inbox and trash the newsletters older than a year"
 
 ## Milestones
 
@@ -27,6 +38,8 @@ Everything else is v2.
 | 4 | Claude suggestions | Turns a script into an assistant |
 | 5 | Polish, docs, demo video | Portfolio deliverables |
 | 6 | MCP server over the same primitives | Claude Desktop can drive the cleanup with the same confirmation gates |
+
+Milestones 1–5 shipped in v0.2.0.
 
 ## Distribution
 

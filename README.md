@@ -8,11 +8,17 @@ It runs on your own machine. One command starts a local server and opens your br
 
 ## What it does
 
-- **Presets** — one click for the big wins: everything before a cutoff date, attachments over 10 MB, promotions older than a year, and so on
-- **Senders** — the top senders in your mailbox by message count, with a real unsubscribe link pulled from each message's `List-Unsubscribe` header
-- **Suggestions** — Claude reads the sender list (domain, count, a few subject lines) and labels each keep / unsubscribe / trash with a one-line reason. You confirm; it never acts alone
-- **Empty trash** — because moving to trash doesn't free storage. Hard confirmation required
-- **Storage gauge** — live quota from Google, plus "freed this session"
+- **Presets** — one click for the big wins: everything before 2020, attachments over 10 MB, promotions, social, updates, mailing lists, and no-reply senders older than a year. Each is a plain Gmail search you can paste into Gmail to check first
+- **Build your own** — pick an age (3 months to 5 years, or before a date), a kind of mail, and a size; Sweep writes the Gmail search and lets you edit it. Any preset can be loaded into the builder with one click
+- **Count before you act** — an exact count streams in as it runs, with an estimated size and a preview of who sent the mail, the date range, and a few subjects, all from a 100-message sample. Counts cap at 50,000+ so nothing spins forever
+- **Trash with a progress bar** — two phases, finding and moving, with a running count. Batches of 1,000, three in flight
+- **Undo and per-action delete** — every trash action lands in a log with its count, size, an Undo button, a Delete forever button, and a Review in Gmail link scoped to exactly what it moved
+- **Senders** — a sample of your older mail grouped by sender, with a real unsubscribe link pulled from each message's `List-Unsubscribe` header
+- **Suggestions** — Claude reads the sender list (domain, count, a few subject lines) and labels each keep / unsubscribe / trash with a one-line reason. You confirm; it never acts alone. Off unless you set an Anthropic key
+- **Empty trash** — because moving to trash doesn't free storage. Typed confirmation required
+- **Storage gauge** — Google's quota in the same units Gmail shows, an estimated figure for what you freed, and what Google has confirmed since you signed in. Returning users see a per-day history kept in the browser
+
+Every number Sweep computed carries a ≈. Numbers without one come from Google.
 
 ## Quick start
 
@@ -59,7 +65,7 @@ See the Developing section of [SETUP.md](SETUP.md).
 
 ## Status
 
-Pre-alpha. Built in the open. See [PLAN.md](PLAN.md) for milestones.
+**v0.2.0.** Runs end to end on a real mailbox: sign-in, counts, trash, undo, permanent delete, with Google confirming several GB freed. See [PLAN.md](PLAN.md) for what is next, including an MCP server so Claude Desktop can drive a cleanup through the same confirmation gates.
 
 ## License
 
