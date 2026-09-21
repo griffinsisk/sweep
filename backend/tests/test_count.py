@@ -105,3 +105,38 @@ async def test_untrash_removes_only_trash_label_in_batches():
     assert await g.untrash([str(i) for i in range(1500)]) == 1500
     assert [len(b["ids"]) for b in seen] == [1000, 500]
     assert all(b["removeLabelIds"] == ["TRASH"] and "addLabelIds" not in b for b in seen)
+
+
+async def test_request_retries_on_429_then_succeeds(monkeypatch):
+    import sweep.google as g_mod
+
+    monkeypatch.setattr(g_mod.asyncio, "sleep", _no_sleep)
+    responses = iter([httpx.Response(429), httpx.Response(503), httpx.Response(200, json={"ok": 1})])
+
+    class FakeClient:
+        async def request(self, *a, **k):
+            return next(responses)
+
+    g = Gmail(Session(access_token="t", refresh_token=None, email="x@y"))
+    g._client = FakeClient()  # type: ignore[assignment]
+    assert (await g._request("GET", "u")).json() == {"ok": 1}
+
+
+async def test_sample_skips_empty_body_instead_of_failing():
+    calls = {"n": 0}
+
+    async def fake_request(method, url, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(200, content=b"")  # what a throttled 200 looks like
+        return httpx.Response(200, json={"sizeEstimate": SIZE, "payload": {"headers": []}})
+
+    g = Gmail(Session(access_token="t", refresh_token=None, email="x@y"))
+    g._request = fake_request  # type: ignore[method-assign]
+    out = await g.sample_summary(["a", "b", "c"])
+    assert out["avg_bytes"] == SIZE
+    assert out["preview"]["sampled"] == 2
+
+
+async def _no_sleep(_):
+    return None

@@ -23,6 +23,8 @@ USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
 BATCH_MODIFY_MAX = 1000  # Gmail hard limit per batchModify / batchDelete call
 COUNT_MAX_PAGES = 100  # 100 pages x 500 ids = 50,000; past that the UI shows "50,000+"
 SIZE_SAMPLE = 100  # messages whose size we fetch to estimate the storage a query holds
+RETRIES = 4
+RETRY_STATUSES = {429, 500, 502, 503, 504}
 
 
 async def exchange_code(code: str) -> dict[str, Any]:
@@ -82,10 +84,17 @@ class Gmail:
         return {"Authorization": f"Bearer {self.session.access_token}"}
 
     async def _request(self, method: str, url: str, **kw) -> httpx.Response:
+        """One Gmail call. Refreshes the token once on 401 and backs off on
+        429 / 5xx the way Google asks (0.5s, 1s, 2s, 4s) before giving up."""
         r = await self._client.request(method, url, headers=self._headers, **kw)
         if r.status_code == 401 and self.session.refresh_token and not self.token_refreshed:
             self.session.access_token = await refresh_access_token(self.session.refresh_token)
             self.token_refreshed = True
+            r = await self._client.request(method, url, headers=self._headers, **kw)
+        for attempt in range(RETRIES):
+            if r.status_code not in RETRY_STATUSES:
+                break
+            await asyncio.sleep(0.5 * 2**attempt)
             r = await self._client.request(method, url, headers=self._headers, **kw)
         if r.status_code >= 400:
             raise HTTPException(r.status_code, f"Google API error: {r.text[:300]}")
@@ -175,8 +184,11 @@ class Gmail:
                         ],
                     )
                 except HTTPException:
-                    return None  # rate-limited or gone; the sample survives without it
-                return r.json()
+                    return None  # rate-limited past retries, or gone; the sample survives
+                try:
+                    return r.json()
+                except ValueError:
+                    return None  # 200 with an empty or non-JSON body: same treatment
 
         msgs = [m for m in await asyncio.gather(*(one(i) for i in ids)) if m]
         if not msgs:
