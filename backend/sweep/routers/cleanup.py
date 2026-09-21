@@ -43,8 +43,8 @@ def _ndjson(request: Request, what: str, open) -> StreamingResponse:
         except HTTPException as e:
             log.error("%s failed: %s", what, e.detail)
             yield json.dumps({"error": e.detail, "done": True}) + "\n"
-        except ValueError:  # Google answered 200 with a body that is not JSON
-            log.warning("%s hit an unparseable Google response", what)
+        except json.JSONDecodeError as e:  # Google answered 200 with a body that is not JSON
+            log.warning("%s: Google body was not JSON (%s)", what, e)
             msg = "Google sent an unreadable response partway through. Try again."
             yield json.dumps({"error": msg, "done": True}) + "\n"
         except Exception as e:  # anything else must still reach the UI as a line
