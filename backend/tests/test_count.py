@@ -140,3 +140,28 @@ async def test_sample_skips_empty_body_instead_of_failing():
 
 async def _no_sleep(_):
     return None
+
+
+def test_delete_endpoint_requires_exact_confirmation(monkeypatch):
+    from sweep import main
+    from sweep.routers import cleanup
+
+    calls: list[list[str]] = []
+
+    class FakeGmail:
+        async def delete_forever(self, ids):
+            calls.append(ids)
+            return len(ids)
+
+    async def fake_client():
+        yield FakeGmail()
+
+    main.app.dependency_overrides[cleanup.gmail_client] = fake_client
+    try:
+        with TestClient(main.app) as c:
+            bad = c.post("/api/delete", json={"ids": ["1"], "confirm": "delete forever"})
+            good = c.post("/api/delete", json={"ids": ["1", "2"], "confirm": "DELETE FOREVER"})
+    finally:
+        main.app.dependency_overrides.clear()
+    assert bad.status_code == 400 and calls == [["1", "2"]]
+    assert good.json() == {"deleted": 2}

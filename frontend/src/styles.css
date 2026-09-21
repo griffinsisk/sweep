@@ -50,7 +50,9 @@ section > h2 { font-size: 17px; font-weight: 800; margin: 0 0 4px; }
 section > p.lede { color: var(--muted); margin: 0 0 20px; max-width: 60ch; }
 
 /* Query builder */
-.builder { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 16px; margin-bottom: 12px; }
+.builder { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 16px; margin-bottom: 12px; border: none; padding: 0; min-width: 0; }
+.builder:disabled { opacity: 0.5; }
+.row input.query:disabled { opacity: 0.6; }
 .builder label > span, .builder legend { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
 .builder select, .builder input[type="date"] { font: inherit; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
 .builder input[type="date"] { margin-top: 8px; }

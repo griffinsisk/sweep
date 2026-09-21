@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..deps import gmail_client
-from ..google import TOO_FAST, Gmail
+from ..google import Gmail
 from ..presets import PRESET_INDEX, PRESETS
 from ..session import read_session
 
@@ -40,9 +40,10 @@ def _count_stream(request: Request, query: str) -> StreamingResponse:
         except HTTPException as e:
             log.error("count failed for %r: %s", query, e.detail)
             yield json.dumps({"error": e.detail, "done": True}) + "\n"
-        except ValueError:  # a throttled 200 with no JSON body, in practice
+        except ValueError:  # Google answered 200 with a body that is not JSON
             log.warning("count for %r hit an unparseable Google response", query)
-            yield json.dumps({"error": TOO_FAST, "done": True}) + "\n"
+            msg = "Google sent an unreadable response partway through. Run the count again."
+            yield json.dumps({"error": msg, "done": True}) + "\n"
         except Exception as e:  # anything else must still reach the UI as a line
             log.exception("count crashed for %r", query)
             yield json.dumps({"error": f"{type(e).__name__}: {e}", "done": True}) + "\n"
@@ -90,16 +91,30 @@ async def query_trash(body: QueryBody, gmail: Gmail = Depends(gmail_client)):
     return TrashResult(trashed=n, query=body.query, ids=ids)
 
 
-class UntrashBody(BaseModel):
+class IdsBody(BaseModel):
     ids: list[str]
 
 
+class DeleteBody(IdsBody):
+    confirm: str  # must equal "DELETE FOREVER"
+
+
 @router.post("/untrash")
-async def untrash(body: UntrashBody, gmail: Gmail = Depends(gmail_client)):
+async def untrash(body: IdsBody, gmail: Gmail = Depends(gmail_client)):
     """Reverse a trash action: the ids come back from the browser that ran it."""
     if len(body.ids) > 100_000:
         raise HTTPException(400, "Too many ids in one undo")
     return {"restored": await gmail.untrash(body.ids)}
+
+
+@router.post("/delete")
+async def delete_ids(body: DeleteBody, gmail: Gmail = Depends(gmail_client)):
+    """Permanently delete one earlier trash action's messages. Irreversible."""
+    if body.confirm != "DELETE FOREVER":
+        raise HTTPException(400, 'Type "DELETE FOREVER" to confirm')
+    if len(body.ids) > 100_000:
+        raise HTTPException(400, "Too many ids in one delete")
+    return {"deleted": await gmail.delete_forever(body.ids)}
 
 
 class EmptyTrashBody(BaseModel):

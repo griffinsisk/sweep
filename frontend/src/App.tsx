@@ -77,6 +77,12 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
     setPendingBytes((b) => Math.max(0, b - entry.bytes));
     setLog((l) => l.filter((e) => e.id !== entry.id));
   };
+  const onDeleted = (entry: TrashEntry) => {
+    setFreedBytes((f) => f + entry.bytes);
+    setPendingBytes((b) => Math.max(0, b - entry.bytes));
+    setLog((l) => l.filter((e) => e.id !== entry.id));
+    refreshStorage();
+  };
   const onEmptied = () => {
     setFreedBytes((f) => f + pendingBytes);
     setPendingBytes(0);
@@ -108,6 +114,7 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
         trashedThisSession={trashedThisSession}
         log={log}
         onRestored={onRestored}
+        onDeleted={onDeleted}
         onEmptied={onEmptied}
       />
     </main>
@@ -157,13 +164,18 @@ function Gauge({
 function useQueryActions(onTrashed: (t: Trashed) => void) {
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [counts, setCounts] = useState<Record<string, Count>>({});
+  const aborts = useRef<Record<string, AbortController>>({});
   const set = (k: string, s: Status) => setStatus((p) => ({ ...p, [k]: s }));
 
-  const count = async (key: string, stream: AsyncGenerator<Count>) => {
+  const stop = (key: string) => aborts.current[key]?.abort();
+
+  const count = async (key: string, open: (signal: AbortSignal) => AsyncGenerator<Count>) => {
+    const ctl = new AbortController();
+    aborts.current[key] = ctl;
     set(key, { kind: "counting" });
+    let last: Count | undefined;
     try {
-      let last: Count | undefined;
-      for await (const line of stream) {
+      for await (const line of open(ctl.signal)) {
         if (line.error) throw new Error(line.error);
         if (typeof line.count !== "number") throw new Error("Unexpected response. Restart sweep.");
         last = line;
@@ -177,7 +189,15 @@ function useQueryActions(onTrashed: (t: Trashed) => void) {
       }
       set(key, { kind: "idle" });
     } catch (e) {
+      if (ctl.signal.aborted) {
+        // User pressed Stop: keep what was counted so far as a lower bound.
+        if (last) setCounts((c) => ({ ...c, [key]: { ...last!, capped: true, done: true } }));
+        set(key, { kind: "idle", text: last ? "Stopped. Showing what was counted so far." : "Stopped." });
+        return;
+      }
       set(key, { kind: "err", text: String(e) });
+    } finally {
+      delete aborts.current[key];
     }
   };
 
@@ -205,7 +225,7 @@ function useQueryActions(onTrashed: (t: Trashed) => void) {
     }
   };
 
-  return { status, counts, count, trash };
+  return { status, counts, count, stop, trash };
 }
 
 /** What a query holds, from the 100-message sample Count already fetched. */
@@ -264,7 +284,7 @@ function Presets({
   onCustomize: (query: string) => void;
 }) {
   const [presets, setPresets] = useState<Preset[]>([]);
-  const { status, counts, count, trash } = useQueryActions(onTrashed);
+  const { status, counts, count, stop, trash } = useQueryActions(onTrashed);
 
   useEffect(() => {
     api.presets().then(setPresets);
@@ -296,9 +316,19 @@ function Presets({
                 <CountCell c={counts[p.key]} counting={s.kind === "counting"} />
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn" disabled={busy} onClick={() => count(p.key, api.presetCount(p.key))}>
-                  Count
-                </button>
+                {s.kind === "counting" ? (
+                  <button className="btn" onClick={() => stop(p.key)}>
+                    Stop
+                  </button>
+                ) : (
+                  <button
+                    className="btn"
+                    disabled={busy}
+                    onClick={() => count(p.key, (sig) => api.presetCount(p.key, sig))}
+                  >
+                    Count
+                  </button>
+                )}
                 <button
                   className="btn danger"
                   disabled={busy}
@@ -384,7 +414,7 @@ const QueryBuilder = forwardRef<
 >(function QueryBuilder({ seed, onTrashed }, ref) {
   const [controls, setControls] = useState<Controls>(EMPTY);
   const [query, setQuery] = useState("");
-  const { status, counts, count, trash } = useQueryActions(onTrashed);
+  const { status, counts, count, stop, trash } = useQueryActions(onTrashed);
   const reset = () => {
     setControls(EMPTY);
     setQuery("");
@@ -417,7 +447,7 @@ const QueryBuilder = forwardRef<
         Pick an age, a kind of mail, and a size. Sweep writes the Gmail search for you; edit
         it if you know the syntax. Count first, then trash.
       </p>
-      <div className="builder">
+      <fieldset className="builder" disabled={busy}>
         <label>
           <span>Age</span>
           <select value={controls.age} onChange={(e) => update({ age: e.target.value })}>
@@ -467,7 +497,7 @@ const QueryBuilder = forwardRef<
             ))}
           </select>
         </label>
-      </div>
+      </fieldset>
       <div className="rows">
         <div className="row">
           <div>
@@ -475,6 +505,7 @@ const QueryBuilder = forwardRef<
             <input
               className="query"
               value={query}
+              disabled={busy}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="e.g. category:social older_than:3y"
               spellCheck={false}
@@ -486,9 +517,19 @@ const QueryBuilder = forwardRef<
             <CountCell c={counts[key]} counting={s.kind === "counting"} />
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn" disabled={busy || !ready} onClick={() => count(key, api.queryCount(query))}>
-              Count
-            </button>
+            {s.kind === "counting" ? (
+              <button className="btn" onClick={() => stop(key)}>
+                Stop
+              </button>
+            ) : (
+              <button
+                className="btn"
+                disabled={busy || !ready}
+                onClick={() => count(key, (sig) => api.queryCount(query, sig))}
+              >
+                Count
+              </button>
+            )}
             <button
               className="btn danger"
               disabled={busy || !ready}
@@ -658,11 +699,13 @@ function EmptyTrash({
   trashedThisSession,
   log,
   onRestored,
+  onDeleted,
   onEmptied,
 }: {
   trashedThisSession: number;
   log: TrashEntry[];
   onRestored: (entry: TrashEntry, restored: number) => void;
+  onDeleted: (entry: TrashEntry) => void;
   onEmptied: () => void;
 }) {
   const [typed, setTyped] = useState("");
@@ -678,6 +721,19 @@ function EmptyTrash({
       setUndoing((u) => ({ ...u, [e.id]: String(err) }));
     }
   };
+
+  const deleteEntry = async (e: TrashEntry) => {
+    if (!confirm(`Permanently delete ${e.count.toLocaleString()} messages from "${e.label}"? This cannot be undone.`))
+      return;
+    setUndoing((u) => ({ ...u, [e.id]: "deleting…" }));
+    try {
+      await api.deleteIds(e.ids);
+      onDeleted(e);
+    } catch (err) {
+      setUndoing((u) => ({ ...u, [e.id]: String(err) }));
+    }
+  };
+  const working = (id: number) => undoing[id] === "restoring…" || undoing[id] === "deleting…";
 
   const run = async () => {
     setStatus({ kind: "working", text: "Deleting permanently…" });
@@ -716,17 +772,22 @@ function EmptyTrash({
                 {e.count.toLocaleString()}
                 {e.bytes > 0 && <div className="size">≈ {gb(e.bytes)} GB</div>}
               </div>
-              <div>
+              <div style={{ display: "flex", gap: 8 }}>
                 {e.ids.length > 0 ? (
-                  <button className="btn" disabled={undoing[e.id] === "restoring…"} onClick={() => undo(e)}>
-                    Undo
-                  </button>
+                  <>
+                    <button className="btn" disabled={working(e.id)} onClick={() => undo(e)}>
+                      Undo
+                    </button>
+                    <button className="btn danger" disabled={working(e.id)} onClick={() => deleteEntry(e)}>
+                      Delete forever
+                    </button>
+                  </>
                 ) : (
-                  <span className="hint">restore in Gmail</span>
+                  <span className="hint">manage in Gmail</span>
                 )}
               </div>
-              {undoing[e.id] && undoing[e.id] !== "restoring…" && (
-                <div className="status err">{undoing[e.id]}</div>
+              {undoing[e.id] && (
+                <div className={`status ${working(e.id) ? "" : "err"}`}>{undoing[e.id]}</div>
               )}
             </div>
           ))}
@@ -735,7 +796,8 @@ function EmptyTrash({
 
       <div className="dangerzone">
         <p style={{ marginTop: 0 }}>
-          Type <strong>DELETE FOREVER</strong> to permanently delete everything in Trash.
+          Type <strong>DELETE FOREVER</strong> to permanently delete everything in Trash, including
+          anything that was already there before this session.
           {log.length > 0 && " Undo above stops working once you do."}
         </p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>

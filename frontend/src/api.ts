@@ -71,18 +71,24 @@ export const api = {
   logout: () => fetch(BASE + "/auth/logout", { method: "POST", credentials: "include" }),
   storage: () => req<Storage>("/api/storage"),
   presets: () => req<Preset[]>("/api/presets"),
-  presetCount: (k: string) => ndjson<Count>(`/api/presets/${k}/count`),
+  presetCount: (k: string, signal?: AbortSignal) => ndjson<Count>(`/api/presets/${k}/count`, { signal }),
   presetTrash: (k: string) => req<TrashResult>(`/api/presets/${k}/trash`, { method: "POST" }),
-  queryCount: (query: string) =>
+  queryCount: (query: string, signal?: AbortSignal) =>
     ndjson<Count>("/api/query/count", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query }),
+      signal,
     }),
   queryTrash: (query: string) =>
     req<TrashResult>("/api/query/trash", { method: "POST", body: JSON.stringify({ query }) }),
   untrash: (ids: string[]) =>
     req<{ restored: number }>("/api/untrash", { method: "POST", body: JSON.stringify({ ids }) }),
+  deleteIds: (ids: string[]) =>
+    req<{ deleted: number }>("/api/delete", {
+      method: "POST",
+      body: JSON.stringify({ ids, confirm: "DELETE FOREVER" }),
+    }),
   senders: (sample = 1000) => req<Sender[]>(`/api/senders?sample=${sample}`),
   suggest: (senders: Sender[]) =>
     req<Suggestion[]>("/api/ai/suggest", {
