@@ -7,11 +7,10 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from ..deps import gmail_client
-from ..google import Gmail
+from ..google import Gmail, parse_from  # noqa: F401  (re-exported for tests)
 
 router = APIRouter(prefix="/api/senders", tags=["senders"])
 
-_EMAIL_RE = re.compile(r"<([^>]+)>")
 _HTTP_RE = re.compile(r"<(https?://[^>]+)>")
 
 
@@ -23,14 +22,6 @@ class Sender(BaseModel):
     estimated_bytes: int
     unsubscribe_url: str | None
     subjects: list[str]
-
-
-def parse_from(raw: str) -> tuple[str, str]:
-    """'Orvis <news@orvis.com>' -> ('news@orvis.com', 'Orvis')"""
-    m = _EMAIL_RE.search(raw)
-    if m:
-        return m.group(1).lower(), raw[: m.start()].strip().strip('"')
-    return raw.strip().lower(), ""
 
 
 def parse_unsubscribe(raw: str | None) -> str | None:

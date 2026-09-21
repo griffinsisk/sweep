@@ -4,7 +4,9 @@ Uses raw REST via httpx rather than google-api-python-client so the
 request surface stays small and readable.
 """
 import asyncio
+from collections import Counter
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -149,30 +151,67 @@ class Gmail:
                 break
             yield {"count": len(ids), "capped": False, "done": False}
 
-        avg = await self.average_size(_spread(ids, sample)) if ids else 0
-        yield {"count": len(ids), "capped": capped, "done": True, "avg_bytes": avg}
+        summary = await self.sample_summary(_spread(ids, sample)) if ids else _EMPTY_SUMMARY
+        yield {"count": len(ids), "capped": capped, "done": True, **summary}
 
-    async def average_size(self, ids: list[str], concurrency: int = 8) -> int:
-        """Mean sizeEstimate across the given ids, via format=minimal gets.
-        Each get costs 5 quota units against a 250/sec per-user limit, so
-        this stays under ~10 in flight and skips any id that errors."""
+    async def sample_summary(self, ids: list[str], concurrency: int = 8) -> dict[str, Any]:
+        """One metadata get per sampled id (5 quota units each against a
+        250/sec per-user limit, so ~10 in flight). Returns avg_bytes plus a
+        preview: who sent the sample, its date range, a few subjects."""
         if not ids:
-            return 0
+            return dict(_EMPTY_SUMMARY)
         sem = asyncio.Semaphore(concurrency)
 
-        async def one(i: str) -> int | None:
+        async def one(i: str) -> dict[str, Any] | None:
             async with sem:
                 try:
                     r = await self._request(
                         "GET", f"{GMAIL}/messages/{i}",
-                        params={"format": "minimal", "fields": "sizeEstimate"},
+                        params=[
+                            ("format", "metadata"),
+                            ("metadataHeaders", "From"),
+                            ("metadataHeaders", "Subject"),
+                            ("fields", "sizeEstimate,internalDate,payload/headers"),
+                        ],
                     )
                 except HTTPException:
                     return None  # rate-limited or gone; the sample survives without it
-                return int(r.json().get("sizeEstimate", 0))
+                return r.json()
 
-        sizes = [x for x in await asyncio.gather(*(one(i) for i in ids)) if x is not None]
-        return sum(sizes) // len(sizes) if sizes else 0
+        msgs = [m for m in await asyncio.gather(*(one(i) for i in ids)) if m]
+        if not msgs:
+            return dict(_EMPTY_SUMMARY)
+
+        sizes, dates, senders, subjects = [], [], Counter(), []
+        names: dict[str, str] = {}
+        for m in msgs:
+            sizes.append(int(m.get("sizeEstimate", 0)))
+            if m.get("internalDate"):
+                dates.append(int(m["internalDate"]) // 1000)
+            h = {x["name"].lower(): x["value"] for x in m.get("payload", {}).get("headers", [])}
+            addr, name = parse_from(h.get("from", ""))
+            if addr:
+                senders[addr] += 1
+                names.setdefault(addr, name)
+            if len(subjects) < 6 and h.get("subject"):
+                subjects.append(h["subject"][:100])
+
+        def iso(ts: int) -> str:
+            return datetime.fromtimestamp(ts, UTC).date().isoformat()
+
+        return {
+            "avg_bytes": sum(sizes) // len(sizes),
+            "preview": {
+                "sampled": len(msgs),
+                "oldest": iso(min(dates)) if dates else None,
+                "newest": iso(max(dates)) if dates else None,
+                "senders": [
+                    {"address": a, "name": names.get(a, ""), "sampled": n}
+                    for a, n in senders.most_common(8)
+                ],
+                "subjects": subjects,
+            },
+        }
 
     async def message_metadata(self, msg_id: str, headers: list[str]) -> dict[str, Any]:
         params = [("format", "metadata")] + [("metadataHeaders", h) for h in headers]
@@ -201,11 +240,33 @@ class Gmail:
             )
         return len(ids)
 
+    async def untrash(self, ids: list[str]) -> int:
+        """Undo trash(): drop the TRASH label so messages return to All Mail.
+        INBOX is not re-added; mail that was archived before stays archived."""
+        for chunk in _chunks(ids, BATCH_MODIFY_MAX):
+            await self._request(
+                "POST",
+                f"{GMAIL}/messages/batchModify",
+                json={"ids": chunk, "removeLabelIds": ["TRASH"]},
+            )
+        return len(ids)
+
     async def delete_forever(self, ids: list[str]) -> int:
         """Permanently delete. Irreversible. Frontend must hard-confirm."""
         for chunk in _chunks(ids, BATCH_MODIFY_MAX):
             await self._request("POST", f"{GMAIL}/messages/batchDelete", json={"ids": chunk})
         return len(ids)
+
+
+_EMPTY_SUMMARY: dict[str, Any] = {"avg_bytes": 0, "preview": None}
+
+
+def parse_from(raw: str) -> tuple[str, str]:
+    """'Orvis <News@Orvis.com>' -> ('news@orvis.com', 'Orvis')"""
+    if "<" in raw and ">" in raw:
+        addr = raw[raw.index("<") + 1 : raw.index(">")].strip().lower()
+        return addr, raw[: raw.index("<")].strip().strip('"')
+    return raw.strip().lower(), ""
 
 
 def _spread(xs: list[str], n: int) -> list[str]:

@@ -17,7 +17,14 @@ def _fake_gmail(pages: list[dict]) -> Gmail:
     async def fake_request(method, url, **kw):
         if url.endswith("/messages"):
             return httpx.Response(200, json=next(calls))
-        return httpx.Response(200, json={"sizeEstimate": SIZE})  # messages/{id}
+        return httpx.Response(200, json={  # messages/{id}
+            "sizeEstimate": SIZE,
+            "internalDate": "1600000000000",
+            "payload": {"headers": [
+                {"name": "From", "value": "Orvis <news@orvis.com>"},
+                {"name": "Subject", "value": "Sale ends soon"},
+            ]},
+        })
 
     g = Gmail(Session(access_token="t", refresh_token=None, email="x@y"))
     g._request = fake_request  # type: ignore[method-assign]
@@ -35,26 +42,33 @@ async def _collect(g: Gmail, **kw) -> list[dict]:
     return [line async for line in g.count_stream("q", **kw)]
 
 
-async def test_streams_progress_then_exact_final_with_avg_bytes():
+async def test_streams_progress_then_exact_final_with_avg_bytes_and_preview():
     lines = await _collect(_fake_gmail([_page(500, True), _page(120, False)]))
     assert lines[0] == {"count": 500, "capped": False, "done": False}
-    assert lines[-1] == {"count": 620, "capped": False, "done": True, "avg_bytes": SIZE}
+    final = lines[-1]
+    assert (final["count"], final["capped"], final["done"], final["avg_bytes"]) == (620, False, True, SIZE)
+    pv = final["preview"]
+    assert pv["sampled"] == 100  # SIZE_SAMPLE spread over 620 ids
+    assert pv["oldest"] == pv["newest"] == "2020-09-13"
+    assert pv["senders"] == [{"address": "news@orvis.com", "name": "Orvis", "sampled": 100}]
+    assert pv["subjects"] == ["Sale ends soon"] * 6
 
 
 async def test_stops_at_max_pages_and_reports_capped():
     lines = await _collect(_fake_gmail([_page(500, True)] * 3), max_pages=3)
     assert len(lines) == 4  # 3 progress lines + final
-    assert lines[-1] == {"count": 1500, "capped": True, "done": True, "avg_bytes": SIZE}
+    assert (lines[-1]["count"], lines[-1]["capped"], lines[-1]["done"]) == (1500, True, True)
 
 
 async def test_empty_result_has_zero_avg():
     lines = await _collect(_fake_gmail([{}]))
-    assert lines == [{"count": 0, "capped": False, "done": True, "avg_bytes": 0}]
+    assert lines == [{"count": 0, "capped": False, "done": True, "avg_bytes": 0, "preview": None}]
 
 
 async def test_count_returns_final_line():
     g = _fake_gmail([_page(3, False)])
-    assert await g.count("q") == {"count": 3, "capped": False, "done": True, "avg_bytes": SIZE}
+    out = await g.count("q")
+    assert (out["count"], out["done"], out["avg_bytes"]) == (3, True, SIZE)
 
 
 def test_spread_is_even_and_capped():
@@ -76,4 +90,18 @@ def test_preset_count_endpoint_streams_ndjson(monkeypatch):
     assert r.headers["content-type"].startswith("application/x-ndjson")
     lines = [json.loads(x) for x in r.text.strip().split("\n")]
     assert lines[0]["done"] is False and lines[0]["count"] == 500
-    assert lines[-1] == {"count": 501, "capped": False, "done": True, "avg_bytes": SIZE}
+    assert (lines[-1]["count"], lines[-1]["done"], lines[-1]["avg_bytes"]) == (501, True, SIZE)
+
+
+async def test_untrash_removes_only_trash_label_in_batches():
+    seen: list[dict] = []
+
+    async def fake_request(method, url, **kw):
+        seen.append(kw["json"])
+        return httpx.Response(200, json={})
+
+    g = Gmail(Session(access_token="t", refresh_token=None, email="x@y"))
+    g._request = fake_request  # type: ignore[method-assign]
+    assert await g.untrash([str(i) for i in range(1500)]) == 1500
+    assert [len(b["ids"]) for b in seen] == [1000, 500]
+    assert all(b["removeLabelIds"] == ["TRASH"] and "addLabelIds" not in b for b in seen)

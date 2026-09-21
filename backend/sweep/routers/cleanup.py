@@ -58,6 +58,7 @@ async def preset_count(key: str, request: Request):
 class TrashResult(BaseModel):
     trashed: int
     query: str
+    ids: list[str]  # held by the browser so the row can undo this exact action
 
 
 @router.post("/presets/{key}/trash", response_model=TrashResult)
@@ -67,7 +68,7 @@ async def preset_trash(key: str, gmail: Gmail = Depends(gmail_client)):
     preset = PRESET_INDEX.get(key) or _404(key)
     ids = await gmail.list_message_ids(preset.query)
     n = await gmail.trash(ids)
-    return TrashResult(trashed=n, query=preset.query)
+    return TrashResult(trashed=n, query=preset.query, ids=ids)
 
 
 class QueryBody(BaseModel):
@@ -83,7 +84,19 @@ async def query_count(body: QueryBody, request: Request):
 async def query_trash(body: QueryBody, gmail: Gmail = Depends(gmail_client)):
     ids = await gmail.list_message_ids(body.query)
     n = await gmail.trash(ids)
-    return TrashResult(trashed=n, query=body.query)
+    return TrashResult(trashed=n, query=body.query, ids=ids)
+
+
+class UntrashBody(BaseModel):
+    ids: list[str]
+
+
+@router.post("/untrash")
+async def untrash(body: UntrashBody, gmail: Gmail = Depends(gmail_client)):
+    """Reverse a trash action: the ids come back from the browser that ran it."""
+    if len(body.ids) > 100_000:
+        raise HTTPException(400, "Too many ids in one undo")
+    return {"restored": await gmail.untrash(body.ids)}
 
 
 class EmptyTrashBody(BaseModel):

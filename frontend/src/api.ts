@@ -12,13 +12,22 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export type Preset = { key: string; label: string; query: string; hint: string };
+export type Preview = {
+  sampled: number;
+  oldest: string | null;
+  newest: string | null;
+  senders: { address: string; name: string; sampled: number }[];
+  subjects: string[];
+};
 export type Count = {
   count: number;
   capped: boolean;
   done: boolean;
-  avg_bytes?: number; // present on the final line: mean size of a 100-message sample
+  avg_bytes?: number; // final line only: mean size across a 100-message sample
+  preview?: Preview | null; // final line only: who/when/what, from the same sample
   error?: string;
 };
+export type TrashResult = { trashed: number; query: string; ids: string[] };
 
 /** Read an NDJSON response line by line. */
 export async function* ndjson<T>(path: string, init?: RequestInit): AsyncGenerator<T> {
@@ -63,7 +72,7 @@ export const api = {
   storage: () => req<Storage>("/api/storage"),
   presets: () => req<Preset[]>("/api/presets"),
   presetCount: (k: string) => ndjson<Count>(`/api/presets/${k}/count`),
-  presetTrash: (k: string) => req<{ trashed: number }>(`/api/presets/${k}/trash`, { method: "POST" }),
+  presetTrash: (k: string) => req<TrashResult>(`/api/presets/${k}/trash`, { method: "POST" }),
   queryCount: (query: string) =>
     ndjson<Count>("/api/query/count", {
       method: "POST",
@@ -71,7 +80,9 @@ export const api = {
       body: JSON.stringify({ query }),
     }),
   queryTrash: (query: string) =>
-    req<{ trashed: number }>("/api/query/trash", { method: "POST", body: JSON.stringify({ query }) }),
+    req<TrashResult>("/api/query/trash", { method: "POST", body: JSON.stringify({ query }) }),
+  untrash: (ids: string[]) =>
+    req<{ restored: number }>("/api/untrash", { method: "POST", body: JSON.stringify({ ids }) }),
   senders: (sample = 1000) => req<Sender[]>(`/api/senders?sample=${sample}`),
   suggest: (senders: Sender[]) =>
     req<Suggestion[]>("/api/ai/suggest", {

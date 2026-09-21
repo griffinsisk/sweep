@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
-import { api, gb, Count, Preset, Sender, Storage, Suggestion } from "./api";
+import { api, gb, Count, Preset, Preview, Sender, Storage, Suggestion, TrashResult } from "./api";
 
 type Status = { kind: "idle" | "counting" | "working" | "ok" | "err"; text?: string };
 
@@ -49,6 +49,7 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
   const [freedBytes, setFreedBytes] = useState(0);
   const [pendingBytes, setPendingBytes] = useState(0);
   const [seed, setSeed] = useState<{ query: string; n: number }>({ query: "", n: 0 });
+  const [epoch, setEpoch] = useState(0); // bumps when trash is emptied: undo is gone
   const builderRef = useRef<HTMLElement>(null);
   const customize = (query: string) => {
     setSeed((s) => ({ query, n: s.n + 1 }));
@@ -67,6 +68,7 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
   const onEmptied = () => {
     setFreedBytes((f) => f + pendingBytes);
     setPendingBytes(0);
+    setEpoch((e) => e + 1);
     refreshStorage();
   };
 
@@ -84,8 +86,8 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
 
       <Gauge storage={storage} pendingBytes={pendingBytes} freedBytes={freedBytes} />
 
-      <Presets onTrashed={onTrashed} onCustomize={customize} />
-      <QueryBuilder ref={builderRef} seed={seed} onTrashed={onTrashed} />
+      <Presets onTrashed={onTrashed} onCustomize={customize} epoch={epoch} />
+      <QueryBuilder ref={builderRef} seed={seed} onTrashed={onTrashed} epoch={epoch} />
       <Senders onTrashed={onTrashed} aiEnabled={aiEnabled} />
       <EmptyTrash trashedThisSession={trashedThisSession} onEmptied={onEmptied} />
     </main>
@@ -132,10 +134,18 @@ function Gauge({
 }
 
 /** Count + trash state for any set of Gmail queries, keyed by string. */
-function useQueryActions(onTrashed: (n: number, bytes: number) => void) {
+type Undo = { ids: string[]; bytes: number };
+
+function useQueryActions(onTrashed: (n: number, bytes: number) => void, epoch: number) {
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [counts, setCounts] = useState<Record<string, Count>>({});
+  const [undos, setUndos] = useState<Record<string, Undo>>({});
   const set = (k: string, s: Status) => setStatus((p) => ({ ...p, [k]: s }));
+
+  // Emptying the trash makes every earlier trash action permanent.
+  useEffect(() => {
+    if (epoch) setUndos({});
+  }, [epoch]);
 
   const count = async (key: string, stream: AsyncGenerator<Count>) => {
     set(key, { kind: "counting" });
@@ -159,12 +169,14 @@ function useQueryActions(onTrashed: (n: number, bytes: number) => void) {
     }
   };
 
-  const trash = async (key: string, query: string, run: () => Promise<{ trashed: number }>) => {
+  const trash = async (key: string, query: string, run: () => Promise<TrashResult>) => {
     if (!confirm(`Move every message matching "${query}" to Trash?`)) return;
     set(key, { kind: "working", text: "Trashing in batches of 1,000…" });
     try {
-      const { trashed } = await run();
-      onTrashed(trashed, trashed * (counts[key]?.avg_bytes ?? 0));
+      const { trashed, ids } = await run();
+      const bytes = trashed * (counts[key]?.avg_bytes ?? 0);
+      onTrashed(trashed, bytes);
+      setUndos((u) => ({ ...u, [key]: { ids, bytes } }));
       setCounts((c) => ({ ...c, [key]: { count: 0, capped: false, done: true, avg_bytes: 0 } }));
       set(key, { kind: "ok", text: `Moved ${trashed.toLocaleString()} messages to Trash.` });
     } catch (e) {
@@ -172,18 +184,103 @@ function useQueryActions(onTrashed: (n: number, bytes: number) => void) {
     }
   };
 
-  return { status, counts, count, trash };
+  const undo = async (key: string) => {
+    const u = undos[key];
+    if (!u) return;
+    set(key, { kind: "working", text: "Restoring…" });
+    try {
+      const { restored } = await api.untrash(u.ids);
+      onTrashed(-restored, -u.bytes);
+      setUndos(({ [key]: _, ...rest }) => rest);
+      set(key, {
+        kind: "ok",
+        text: `Restored ${restored.toLocaleString()} messages to All Mail (not back to Inbox).`,
+      });
+    } catch (e) {
+      set(key, { kind: "err", text: String(e) });
+    }
+  };
+
+  return { status, counts, undos, count, trash, undo };
+}
+
+/** Status line for a row, with Undo while the trash action is still reversible. */
+function RowStatus({ s, undo, onUndo }: { s: Status; undo?: Undo; onUndo: () => void }) {
+  if (!s.text && !undo) return null;
+  return (
+    <div className={`status ${s.kind}`}>
+      {s.text}
+      {undo && s.kind !== "working" && (
+        <>
+          {" "}
+          <button className="linkish" onClick={onUndo}>
+            Undo
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** What a query holds, from the 100-message sample Count already fetched. */
+function PreviewPanel({ p, total }: { p: Preview; total: number }) {
+  const [open, setOpen] = useState(false);
+  const share = (n: number) => `${Math.max(1, Math.round((n / p.sampled) * 100))}%`;
+  return (
+    <div className="preview">
+      <button className="linkish" onClick={() => setOpen((o) => !o)}>
+        {open ? "Hide preview" : "Preview what's in here"}
+      </button>
+      {open && (
+        <div className="preview-body">
+          <p>
+            Based on {p.sampled} messages sampled evenly across {total.toLocaleString()} matches
+            {p.oldest && p.newest && (
+              <>
+                , dated <strong>{p.oldest}</strong> to <strong>{p.newest}</strong>
+              </>
+            )}
+            .
+          </p>
+          <div className="preview-cols">
+            <div>
+              <div className="k">Who sent them</div>
+              <ul>
+                {p.senders.map((x) => (
+                  <li key={x.address}>
+                    <span className="name">{x.name || x.address}</span>
+                    {x.name && <span className="addr"> {x.address}</span>}
+                    <span className="share">~{share(x.sampled)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <div className="k">A few subjects</div>
+              <ul>
+                {p.subjects.map((t, i) => (
+                  <li key={i}>{t}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Presets({
   onTrashed,
   onCustomize,
+  epoch,
 }: {
   onTrashed: (n: number, bytes: number) => void;
   onCustomize: (query: string) => void;
+  epoch: number;
 }) {
   const [presets, setPresets] = useState<Preset[]>([]);
-  const { status, counts, count, trash } = useQueryActions(onTrashed);
+  const { status, counts, undos, count, trash, undo } = useQueryActions(onTrashed, epoch);
 
   useEffect(() => {
     api.presets().then(setPresets);
@@ -226,7 +323,10 @@ function Presets({
                   Trash all
                 </button>
               </div>
-              {s.text && <div className={`status ${s.kind}`}>{s.text}</div>}
+              <RowStatus s={s} undo={undos[p.key]} onUndo={() => undo(p.key)} />
+              {counts[p.key]?.preview && counts[p.key].count > 0 && (
+                <PreviewPanel p={counts[p.key].preview!} total={counts[p.key].count} />
+              )}
             </div>
           );
         })}
@@ -296,11 +396,11 @@ function parseQuery(q: string): Controls {
 
 const QueryBuilder = forwardRef<
   HTMLElement,
-  { seed: { query: string; n: number }; onTrashed: (n: number, bytes: number) => void }
->(function QueryBuilder({ seed, onTrashed }, ref) {
+  { seed: { query: string; n: number }; onTrashed: (n: number, bytes: number) => void; epoch: number }
+>(function QueryBuilder({ seed, onTrashed, epoch }, ref) {
   const [controls, setControls] = useState<Controls>(EMPTY);
   const [query, setQuery] = useState("");
-  const { status, counts, count, trash } = useQueryActions(onTrashed);
+  const { status, counts, undos, count, trash, undo } = useQueryActions(onTrashed, epoch);
 
   // A preset's "Customize" loads its query and lights up matching controls.
   useEffect(() => {
@@ -409,7 +509,10 @@ const QueryBuilder = forwardRef<
               Trash all
             </button>
           </div>
-          {s.text && <div className={`status ${s.kind}`}>{s.text}</div>}
+          <RowStatus s={s} undo={undos[key]} onUndo={() => undo(key)} />
+          {counts[key]?.preview && counts[key].count > 0 && (
+            <PreviewPanel p={counts[key].preview!} total={counts[key].count} />
+          )}
         </div>
       </div>
     </section>
