@@ -19,12 +19,6 @@ PRESETS: list[Preset] = [
         hint="The single biggest win for an old inbox. Excludes nothing — check Starred first.",
     ),
     Preset(
-        key="attachments-25m",
-        label="Attachments over 25 MB",
-        query="has:attachment larger:25M",
-        hint="A few dozen of these can be gigabytes.",
-    ),
-    Preset(
         key="attachments-10m",
         label="Attachments over 10 MB",
         query="has:attachment larger:10M",
@@ -47,6 +41,18 @@ PRESETS: list[Preset] = [
         label="Updates and receipts older than a year",
         query="category:updates older_than:1y",
         hint="Shipping confirmations, password resets. Skip if you keep receipts for taxes.",
+    ),
+    Preset(
+        key="forums-1y",
+        label="Mailing lists older than a year",
+        query="category:forums older_than:1y",
+        hint="Group threads and list traffic nobody goes back to.",
+    ),
+    Preset(
+        key="unsubscribe-1y",
+        label="Anything with an unsubscribe link, older than a year",
+        query="unsubscribe older_than:1y",
+        hint="Catches marketing the category filters miss.",
     ),
     Preset(
         key="noreply-1y",

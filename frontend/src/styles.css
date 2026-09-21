@@ -49,6 +49,17 @@ section { margin-bottom: 56px; }
 section > h2 { font-size: 17px; font-weight: 800; margin: 0 0 4px; }
 section > p.lede { color: var(--muted); margin: 0 0 20px; max-width: 60ch; }
 
+/* Query builder */
+.builder { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 16px; margin-bottom: 12px; }
+.builder label > span, .builder legend { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+.builder select, .builder input[type="date"] { font: inherit; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
+.builder input[type="date"] { margin-top: 8px; }
+.builder fieldset { border: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; align-content: start; }
+.builder fieldset legend { padding: 0; width: 100%; }
+.builder .check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; }
+.row input.query { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; width: 100%; padding: 8px 10px; margin: 6px 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink); }
+@media (max-width: 720px) { .builder { grid-template-columns: 1fr; } }
+
 /* Rows, not cards */
 .rows { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .row { display: grid; grid-template-columns: 1fr auto auto; gap: 16px; align-items: center; padding: 14px 16px; border-top: 1px solid var(--line); }

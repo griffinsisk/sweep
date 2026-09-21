@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import { api, gb, Count, Preset, Sender, Storage, Suggestion } from "./api";
 
 type Status = { kind: "idle" | "counting" | "working" | "ok" | "err"; text?: string };
@@ -48,6 +48,12 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
   const [trashedThisSession, setTrashedThisSession] = useState(0);
   const [freedBytes, setFreedBytes] = useState(0);
   const [pendingBytes, setPendingBytes] = useState(0);
+  const [seed, setSeed] = useState<{ query: string; n: number }>({ query: "", n: 0 });
+  const builderRef = useRef<HTMLElement>(null);
+  const customize = (query: string) => {
+    setSeed((s) => ({ query, n: s.n + 1 }));
+    builderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const refreshStorage = () => api.storage().then(setStorage).catch(() => {});
   useEffect(() => {
@@ -78,7 +84,8 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
 
       <Gauge storage={storage} pendingBytes={pendingBytes} freedBytes={freedBytes} />
 
-      <Presets onTrashed={onTrashed} />
+      <Presets onTrashed={onTrashed} onCustomize={customize} />
+      <QueryBuilder ref={builderRef} seed={seed} onTrashed={onTrashed} />
       <Senders onTrashed={onTrashed} aiEnabled={aiEnabled} />
       <EmptyTrash trashedThisSession={trashedThisSession} onEmptied={onEmptied} />
     </main>
@@ -124,51 +131,63 @@ function Gauge({
   );
 }
 
-function Presets({ onTrashed }: { onTrashed: (n: number, bytes: number) => void }) {
-  const [presets, setPresets] = useState<Preset[]>([]);
+/** Count + trash state for any set of Gmail queries, keyed by string. */
+function useQueryActions(onTrashed: (n: number, bytes: number) => void) {
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [counts, setCounts] = useState<Record<string, Count>>({});
+  const set = (k: string, s: Status) => setStatus((p) => ({ ...p, [k]: s }));
+
+  const count = async (key: string, stream: AsyncGenerator<Count>) => {
+    set(key, { kind: "counting" });
+    try {
+      let last: Count | undefined;
+      for await (const line of stream) {
+        if (line.error) throw new Error(line.error);
+        if (typeof line.count !== "number") throw new Error("Unexpected response. Restart sweep.");
+        last = line;
+        setCounts((c) => ({ ...c, [key]: line }));
+      }
+      if (last && !last.done) {
+        // Stream ended without a final line: keep the count, skip the size estimate.
+        setCounts((c) => ({ ...c, [key]: { ...last!, done: true } }));
+        set(key, { kind: "err", text: "Count finished early; size estimate unavailable." });
+        return;
+      }
+      set(key, { kind: "idle" });
+    } catch (e) {
+      set(key, { kind: "err", text: String(e) });
+    }
+  };
+
+  const trash = async (key: string, query: string, run: () => Promise<{ trashed: number }>) => {
+    if (!confirm(`Move every message matching "${query}" to Trash?`)) return;
+    set(key, { kind: "working", text: "Trashing in batches of 1,000…" });
+    try {
+      const { trashed } = await run();
+      onTrashed(trashed, trashed * (counts[key]?.avg_bytes ?? 0));
+      setCounts((c) => ({ ...c, [key]: { count: 0, capped: false, done: true, avg_bytes: 0 } }));
+      set(key, { kind: "ok", text: `Moved ${trashed.toLocaleString()} messages to Trash.` });
+    } catch (e) {
+      set(key, { kind: "err", text: String(e) });
+    }
+  };
+
+  return { status, counts, count, trash };
+}
+
+function Presets({
+  onTrashed,
+  onCustomize,
+}: {
+  onTrashed: (n: number, bytes: number) => void;
+  onCustomize: (query: string) => void;
+}) {
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const { status, counts, count, trash } = useQueryActions(onTrashed);
 
   useEffect(() => {
     api.presets().then(setPresets);
   }, []);
-
-  const set = (k: string, s: Status) => setStatus((p) => ({ ...p, [k]: s }));
-
-  const count = async (p: Preset) => {
-    set(p.key, { kind: "counting" });
-    try {
-      let last: Count | undefined;
-      for await (const line of api.presetCount(p.key)) {
-        if (line.error) throw new Error(line.error);
-        if (typeof line.count !== "number") throw new Error("Unexpected response. Restart sweep.");
-        last = line;
-        setCounts((c) => ({ ...c, [p.key]: line }));
-      }
-      if (last && !last.done) {
-        // Stream ended without a final line: keep the count, skip the size estimate.
-        setCounts((c) => ({ ...c, [p.key]: { ...last!, done: true } }));
-        set(p.key, { kind: "err", text: "Count finished early; size estimate unavailable." });
-        return;
-      }
-      set(p.key, { kind: "idle" });
-    } catch (e) {
-      set(p.key, { kind: "err", text: String(e) });
-    }
-  };
-
-  const trash = async (p: Preset) => {
-    if (!confirm(`Move every message matching "${p.query}" to Trash?`)) return;
-    set(p.key, { kind: "working", text: "Trashing in batches of 1,000…" });
-    try {
-      const { trashed } = await api.presetTrash(p.key);
-      onTrashed(trashed, trashed * (counts[p.key]?.avg_bytes ?? 0));
-      setCounts((c) => ({ ...c, [p.key]: { count: 0, capped: false, done: true, avg_bytes: 0 } }));
-      set(p.key, { kind: "ok", text: `Moved ${trashed.toLocaleString()} messages to Trash.` });
-    } catch (e) {
-      set(p.key, { kind: "err", text: String(e) });
-    }
-  };
 
   return (
     <section>
@@ -186,17 +205,24 @@ function Presets({ onTrashed }: { onTrashed: (n: number, bytes: number) => void 
               <div>
                 <div className="label">{p.label}</div>
                 <div className="hint">
-                  {p.hint} <code>{p.query}</code>
+                  {p.hint} <code>{p.query}</code>{" "}
+                  <button className="linkish" onClick={() => onCustomize(p.query)}>
+                    Customize
+                  </button>
                 </div>
               </div>
               <div className="count">
                 <CountCell c={counts[p.key]} counting={s.kind === "counting"} />
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn" disabled={busy} onClick={() => count(p)}>
+                <button className="btn" disabled={busy} onClick={() => count(p.key, api.presetCount(p.key))}>
                   Count
                 </button>
-                <button className="btn danger" disabled={busy} onClick={() => trash(p)}>
+                <button
+                  className="btn danger"
+                  disabled={busy}
+                  onClick={() => trash(p.key, p.query, () => api.presetTrash(p.key))}
+                >
                   Trash all
                 </button>
               </div>
@@ -208,6 +234,187 @@ function Presets({ onTrashed }: { onTrashed: (n: number, bytes: number) => void 
     </section>
   );
 }
+
+/* ---- Query builder ------------------------------------------------------ */
+
+const AGES: { label: string; value: string }[] = [
+  { label: "Any age", value: "" },
+  { label: "Older than 3 months", value: "older_than:3m" },
+  { label: "Older than 6 months", value: "older_than:6m" },
+  { label: "Older than 1 year", value: "older_than:1y" },
+  { label: "Older than 2 years", value: "older_than:2y" },
+  { label: "Older than 3 years", value: "older_than:3y" },
+  { label: "Older than 5 years", value: "older_than:5y" },
+  { label: "Before a date…", value: "before" },
+];
+const CATEGORIES = ["promotions", "social", "updates", "forums"] as const;
+const SIZES: { label: string; value: string }[] = [
+  { label: "Any size", value: "" },
+  { label: "Larger than 1 MB", value: "larger:1M" },
+  { label: "Larger than 5 MB", value: "larger:5M" },
+  { label: "Larger than 10 MB", value: "larger:10M" },
+  { label: "Larger than 25 MB", value: "larger:25M" },
+];
+const NOREPLY = "(from:noreply OR from:no-reply OR from:donotreply)";
+
+type Controls = {
+  age: string; // one of AGES[].value
+  before: string; // YYYY-MM-DD when age === "before"
+  cats: string[];
+  attachment: boolean;
+  noreply: boolean;
+  size: string;
+};
+const EMPTY: Controls = { age: "", before: "", cats: [], attachment: false, noreply: false, size: "" };
+
+function buildQuery(c: Controls): string {
+  const parts: string[] = [];
+  if (c.cats.length === 1) parts.push(`category:${c.cats[0]}`);
+  if (c.cats.length > 1) parts.push(`(${c.cats.map((x) => `category:${x}`).join(" OR ")})`);
+  if (c.attachment) parts.push("has:attachment");
+  if (c.noreply) parts.push(NOREPLY);
+  if (c.size) parts.push(c.size);
+  if (c.age === "before" && c.before) parts.push(`before:${c.before.replace(/-/g, "/")}`);
+  else if (c.age && c.age !== "before") parts.push(c.age);
+  return parts.join(" ");
+}
+
+/** Best-effort inverse of buildQuery so "Customize" lights up the right controls. */
+function parseQuery(q: string): Controls {
+  const c: Controls = { ...EMPTY, cats: [] };
+  const age = q.match(/older_than:\d+[dmy]/)?.[0];
+  if (age && AGES.some((a) => a.value === age)) c.age = age;
+  const before = q.match(/before:(\d{4})\/(\d{2})\/(\d{2})/);
+  if (before) (c.age = "before"), (c.before = `${before[1]}-${before[2]}-${before[3]}`);
+  for (const cat of CATEGORIES) if (q.includes(`category:${cat}`)) c.cats.push(cat);
+  c.attachment = q.includes("has:attachment");
+  c.noreply = q.includes(NOREPLY);
+  const size = q.match(/larger:\d+M/)?.[0];
+  if (size && SIZES.some((s) => s.value === size)) c.size = size;
+  return c;
+}
+
+const QueryBuilder = forwardRef<
+  HTMLElement,
+  { seed: { query: string; n: number }; onTrashed: (n: number, bytes: number) => void }
+>(function QueryBuilder({ seed, onTrashed }, ref) {
+  const [controls, setControls] = useState<Controls>(EMPTY);
+  const [query, setQuery] = useState("");
+  const { status, counts, count, trash } = useQueryActions(onTrashed);
+
+  // A preset's "Customize" loads its query and lights up matching controls.
+  useEffect(() => {
+    if (!seed.n) return;
+    setQuery(seed.query);
+    setControls(parseQuery(seed.query));
+  }, [seed]);
+
+  const update = (patch: Partial<Controls>) => {
+    const next = { ...controls, ...patch };
+    setControls(next);
+    setQuery(buildQuery(next));
+  };
+  const toggleCat = (cat: string) =>
+    update({ cats: controls.cats.includes(cat) ? controls.cats.filter((x) => x !== cat) : [...controls.cats, cat] });
+
+  const key = "builder";
+  const s = status[key] ?? { kind: "idle" };
+  const busy = s.kind === "working" || s.kind === "counting";
+  const ready = query.trim().length > 0;
+
+  return (
+    <section ref={ref}>
+      <h2>Build your own</h2>
+      <p className="lede">
+        Pick an age, a kind of mail, and a size. Sweep writes the Gmail search for you; edit
+        it if you know the syntax. Count first, then trash.
+      </p>
+      <div className="builder">
+        <label>
+          <span>Age</span>
+          <select value={controls.age} onChange={(e) => update({ age: e.target.value })}>
+            {AGES.map((a) => (
+              <option key={a.value} value={a.value}>
+                {a.label}
+              </option>
+            ))}
+          </select>
+          {controls.age === "before" && (
+            <input
+              type="date"
+              value={controls.before}
+              onChange={(e) => update({ before: e.target.value })}
+              aria-label="Before date"
+            />
+          )}
+        </label>
+        <fieldset>
+          <legend>Kind of mail</legend>
+          {CATEGORIES.map((cat) => (
+            <label key={cat} className="check">
+              <input type="checkbox" checked={controls.cats.includes(cat)} onChange={() => toggleCat(cat)} />
+              {cat[0].toUpperCase() + cat.slice(1)}
+            </label>
+          ))}
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={controls.attachment}
+              onChange={(e) => update({ attachment: e.target.checked })}
+            />
+            Has attachment
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={controls.noreply} onChange={(e) => update({ noreply: e.target.checked })} />
+            No-reply senders
+          </label>
+        </fieldset>
+        <label>
+          <span>Size</span>
+          <select value={controls.size} onChange={(e) => update({ size: e.target.value })}>
+            {SIZES.map((z) => (
+              <option key={z.value} value={z.value}>
+                {z.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="rows">
+        <div className="row">
+          <div>
+            <div className="label">Your query</div>
+            <input
+              className="query"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="e.g. category:social older_than:3y"
+              spellCheck={false}
+              aria-label="Gmail search query"
+            />
+            <div className="hint">Same syntax as Gmail's search bar. Paste it there to preview matches.</div>
+          </div>
+          <div className="count">
+            <CountCell c={counts[key]} counting={s.kind === "counting"} />
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn" disabled={busy || !ready} onClick={() => count(key, api.queryCount(query))}>
+              Count
+            </button>
+            <button
+              className="btn danger"
+              disabled={busy || !ready}
+              onClick={() => trash(key, query, () => api.queryTrash(query))}
+            >
+              Trash all
+            </button>
+          </div>
+          {s.text && <div className={`status ${s.kind}`}>{s.text}</div>}
+        </div>
+      </div>
+    </section>
+  );
+});
 
 function CountCell({ c, counting }: { c?: Count; counting: boolean }) {
   if (!c) return counting ? <>counting…</> : null;

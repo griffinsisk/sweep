@@ -64,6 +64,12 @@ export const api = {
   presets: () => req<Preset[]>("/api/presets"),
   presetCount: (k: string) => ndjson<Count>(`/api/presets/${k}/count`),
   presetTrash: (k: string) => req<{ trashed: number }>(`/api/presets/${k}/trash`, { method: "POST" }),
+  queryCount: (query: string) =>
+    ndjson<Count>("/api/query/count", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    }),
   queryTrash: (query: string) =>
     req<{ trashed: number }>("/api/query/trash", { method: "POST", body: JSON.stringify({ query }) }),
   senders: (sample = 1000) => req<Sender[]>(`/api/senders?sample=${sample}`),
