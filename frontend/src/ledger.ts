@@ -30,13 +30,35 @@ function save(email: string, ledger: Ledger) {
   }
 }
 
-/** Record this session's start. Returns the ledger including the new session. */
+const day = (iso: string) => iso.slice(0, 10);
+
+/** Record this session's start. A session is one calendar day per account:
+ * reloading the page or restarting the server on the same day continues the
+ * existing record, so the count means "days you used Sweep", not page loads.
+ * The first usage figure of the day is kept as that day's starting point. */
 export function startSession(email: string, usage: number): Ledger {
   const ledger = loadLedger(email);
-  ledger.sessions.push({ at: new Date().toISOString(), usage, estimatedFreed: 0 });
-  if (ledger.sessions.length > 50) ledger.sessions.splice(0, ledger.sessions.length - 50);
-  save(email, ledger);
+  const now = new Date().toISOString();
+  const last = ledger.sessions[ledger.sessions.length - 1];
+  if (!last || day(last.at) !== day(now)) {
+    ledger.sessions.push({ at: now, usage, estimatedFreed: 0 });
+    if (ledger.sessions.length > 50) ledger.sessions.splice(0, ledger.sessions.length - 50);
+    save(email, ledger);
+  }
   return ledger;
+}
+
+/** One-time repair for ledgers written before sessions were per day. */
+export function collapseSameDay(email: string): Ledger {
+  const ledger = loadLedger(email);
+  const out: Session[] = [];
+  for (const s of ledger.sessions) {
+    const prev = out[out.length - 1];
+    if (prev && day(prev.at) === day(s.at)) prev.estimatedFreed += s.estimatedFreed;
+    else out.push({ ...s });
+  }
+  if (out.length !== ledger.sessions.length) save(email, { sessions: out });
+  return { sessions: out };
 }
 
 /** Add to the current (last) session's estimate after a permanent delete. */

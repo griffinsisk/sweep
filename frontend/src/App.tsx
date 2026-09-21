@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
-import { loadLedger, recordFreed, startSession, summarize, Ledger } from "./ledger";
+import { collapseSameDay, recordFreed, startSession, summarize, Ledger } from "./ledger";
 import { api, gb, mb, BatchProgress, Count, Preset, Preview, Sender, Storage, Suggestion, TrashProgress } from "./api";
 
 type Progress = { label: string; current: number; total?: number };
@@ -110,7 +110,7 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
   };
 
   const [startUsage, setStartUsage] = useState<number | null>(null);
-  const [ledger, setLedger] = useState<Ledger>(() => loadLedger(email));
+  const [ledger, setLedger] = useState<Ledger>(() => collapseSameDay(email));
   const [refreshing, setRefreshing] = useState(false);
   const refreshStorage = async () => {
     setRefreshing(true);
@@ -273,7 +273,7 @@ function Gauge({
           {history.firstAt.toLocaleDateString(undefined, { month: "short", day: "numeric" })}: Google
           reports <strong>{gb(history.confirmedSinceFirst)} GB</strong> less
           {history.estimatedSinceFirst > 0 && <> (Sweep estimated ≈ {gb(history.estimatedSinceFirst)} GB)</>}
-          . {history.sessions} sessions.
+          . {history.sessions} days.
         </p>
       )}
       {freedBytes > 0 && verified < freedBytes * 0.5 && (
