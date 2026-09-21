@@ -97,11 +97,13 @@ class Gmail:
             self.token_refreshed = True
             r = await self._client.request(method, url, headers=self._headers, **kw)
         for attempt in range(RETRIES):
-            if r.status_code not in RETRY_STATUSES:
+            if r.status_code not in RETRY_STATUSES and not _throttled_200(r):
                 break
             await asyncio.sleep(0.5 * 2**attempt)
             r = await self._client.request(method, url, headers=self._headers, **kw)
         if r.status_code == 429 or (r.status_code == 403 and "rateLimit" in r.text):
+            raise HTTPException(429, TOO_FAST)
+        if _throttled_200(r):  # still empty after backoff: it is a rate limit in disguise
             raise HTTPException(429, TOO_FAST)
         if r.status_code == 403 and "insufficientPermissions" in r.text:
             raise HTTPException(403, NEEDS_RECONSENT)
@@ -321,6 +323,12 @@ class Gmail:
         async for _ in self._batch_stream(ids, "batchDelete", {}):
             pass
         return len(ids)
+
+
+def _throttled_200(r: httpx.Response) -> bool:
+    """Under load Gmail sometimes answers 200 with no body at all. Every call
+    we make expects JSON, so an empty 200 is a throttle, not a success."""
+    return r.status_code == 200 and not r.content.strip()
 
 
 _EMPTY_SUMMARY: dict[str, Any] = {"avg_bytes": 0, "preview": None}

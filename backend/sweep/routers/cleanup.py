@@ -36,6 +36,9 @@ def _ndjson(request: Request, what: str, open) -> StreamingResponse:
         gmail = Gmail(session)
         try:
             async for line in open(gmail):
+                if await request.is_disconnected():  # user pressed Stop or left
+                    log.info("%s stopped by client", what)
+                    return
                 yield json.dumps(line) + "\n"
         except HTTPException as e:
             log.error("%s failed: %s", what, e.detail)

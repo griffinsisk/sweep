@@ -122,6 +122,34 @@ async def test_request_retries_on_429_then_succeeds(monkeypatch):
     assert (await g._request("GET", "u")).json() == {"ok": 1}
 
 
+async def test_request_retries_empty_200_then_gives_too_fast(monkeypatch):
+    import sweep.google as g_mod
+
+    monkeypatch.setattr(g_mod.asyncio, "sleep", _no_sleep)
+    responses = iter([httpx.Response(200, content=b""), httpx.Response(200, json={"ok": 1})])
+
+    class FakeClient:
+        async def request(self, *a, **k):
+            return next(responses)
+
+    g = Gmail(Session(access_token="t", refresh_token=None, email="x@y"))
+    g._client = FakeClient()  # type: ignore[assignment]
+    assert (await g._request("GET", "u")).json() == {"ok": 1}
+
+    always_empty = Gmail(Session(access_token="t", refresh_token=None, email="x@y"))
+
+    class EmptyClient:
+        async def request(self, *a, **k):
+            return httpx.Response(200, content=b"")
+
+    always_empty._client = EmptyClient()  # type: ignore[assignment]
+    try:
+        await always_empty._request("GET", "u")
+        raise AssertionError("expected HTTPException")
+    except Exception as e:
+        assert getattr(e, "status_code", None) == 429 and "commotion" in str(e.detail)
+
+
 async def test_sample_skips_empty_body_instead_of_failing():
     calls = {"n": 0}
 
