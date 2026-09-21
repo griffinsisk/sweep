@@ -1,9 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..deps import gmail_client
 from ..google import Gmail
 from ..presets import PRESET_INDEX, PRESETS
+from ..session import read_session
 
 router = APIRouter(prefix="/api", tags=["cleanup"])
 
@@ -19,10 +23,29 @@ async def list_presets():
     return PRESETS
 
 
+def _count_stream(request: Request, query: str) -> StreamingResponse:
+    """NDJSON: one progress line per 500-id page, then a final line with
+    done=true and avg_bytes. Manages its own Gmail client because the
+    response body runs after request-scoped dependencies have exited."""
+    session = read_session(request)
+
+    async def body():
+        gmail = Gmail(session)
+        try:
+            async for line in gmail.count_stream(query):
+                yield json.dumps(line) + "\n"
+        except HTTPException as e:
+            yield json.dumps({"error": e.detail, "done": True}) + "\n"
+        finally:
+            await gmail.close()
+
+    return StreamingResponse(body(), media_type="application/x-ndjson")
+
+
 @router.get("/presets/{key}/count")
-async def preset_count(key: str, gmail: Gmail = Depends(gmail_client)):
+async def preset_count(key: str, request: Request):
     preset = PRESET_INDEX.get(key) or _404(key)
-    return await gmail.count(preset.query)
+    return _count_stream(request, preset.query)
 
 
 class TrashResult(BaseModel):
@@ -45,8 +68,8 @@ class QueryBody(BaseModel):
 
 
 @router.post("/query/count")
-async def query_count(body: QueryBody, gmail: Gmail = Depends(gmail_client)):
-    return await gmail.count(body.query)
+async def query_count(body: QueryBody, request: Request):
+    return _count_stream(request, body.query)
 
 
 @router.post("/query/trash", response_model=TrashResult)

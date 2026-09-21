@@ -124,7 +124,7 @@ function Gauge({
   );
 }
 
-function Presets({ onTrashed }: { onTrashed: (n: number) => void }) {
+function Presets({ onTrashed }: { onTrashed: (n: number, bytes: number) => void }) {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [counts, setCounts] = useState<Record<string, Count>>({});
@@ -138,9 +138,11 @@ function Presets({ onTrashed }: { onTrashed: (n: number) => void }) {
   const count = async (p: Preset) => {
     set(p.key, { kind: "counting" });
     try {
-      const result = await api.presetCount(p.key);
-      if (typeof result?.count !== "number") throw new Error("Unexpected response. Restart sweep.");
-      setCounts((c) => ({ ...c, [p.key]: result }));
+      for await (const line of api.presetCount(p.key)) {
+        if (line.error) throw new Error(line.error);
+        if (typeof line.count !== "number") throw new Error("Unexpected response. Restart sweep.");
+        setCounts((c) => ({ ...c, [p.key]: line }));
+      }
       set(p.key, { kind: "idle" });
     } catch (e) {
       set(p.key, { kind: "err", text: String(e) });
@@ -152,8 +154,8 @@ function Presets({ onTrashed }: { onTrashed: (n: number) => void }) {
     set(p.key, { kind: "working", text: "Trashing in batches of 1,000…" });
     try {
       const { trashed } = await api.presetTrash(p.key);
-      onTrashed(trashed);
-      setCounts((c) => ({ ...c, [p.key]: { count: 0, capped: false } }));
+      onTrashed(trashed, trashed * (counts[p.key]?.avg_bytes ?? 0));
+      setCounts((c) => ({ ...c, [p.key]: { count: 0, capped: false, done: true, avg_bytes: 0 } }));
       set(p.key, { kind: "ok", text: `Moved ${trashed.toLocaleString()} messages to Trash.` });
     } catch (e) {
       set(p.key, { kind: "err", text: String(e) });
@@ -180,11 +182,7 @@ function Presets({ onTrashed }: { onTrashed: (n: number) => void }) {
                 </div>
               </div>
               <div className="count">
-                {s.kind === "counting"
-                  ? "counting…"
-                  : counts[p.key] !== undefined
-                  ? `${counts[p.key].count.toLocaleString()}${counts[p.key].capped ? "+" : ""}`
-                  : ""}
+                <CountCell c={counts[p.key]} counting={s.kind === "counting"} />
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <button className="btn" disabled={busy} onClick={() => count(p)}>
@@ -200,6 +198,23 @@ function Presets({ onTrashed }: { onTrashed: (n: number) => void }) {
         })}
       </div>
     </section>
+  );
+}
+
+function CountCell({ c, counting }: { c?: Count; counting: boolean }) {
+  if (!c) return counting ? <>counting…</> : null;
+  const n = `${c.count.toLocaleString()}${c.capped ? "+" : ""}`;
+  if (counting || !c.done) return <>{n}…</>;
+  const bytes = c.count * (c.avg_bytes ?? 0);
+  return (
+    <>
+      {n}
+      {bytes > 0 && (
+        <div className="size">
+          ≈ {gb(bytes)} GB{c.capped ? "+" : ""}
+        </div>
+      )}
+    </>
   );
 }
 

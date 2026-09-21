@@ -4,6 +4,7 @@ Uses raw REST via httpx rather than google-api-python-client so the
 request surface stays small and readable.
 """
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -19,6 +20,7 @@ USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
 
 BATCH_MODIFY_MAX = 1000  # Gmail hard limit per batchModify / batchDelete call
 COUNT_MAX_PAGES = 100  # 100 pages x 500 ids = 50,000; past that the UI shows "50,000+"
+SIZE_SAMPLE = 100  # messages whose size we fetch to estimate the storage a query holds
 
 
 async def exchange_code(code: str) -> dict[str, Any]:
@@ -116,21 +118,56 @@ class Gmail:
         return ids[:limit] if limit else ids
 
     async def count(self, query: str, max_pages: int = COUNT_MAX_PAGES) -> dict[str, Any]:
+        """Final result of count_stream(); kept for callers that do not stream."""
+        last: dict[str, Any] = {"count": 0, "capped": False, "done": True}
+        async for last in self.count_stream(query, max_pages):
+            pass
+        return last
+
+    async def count_stream(
+        self, query: str, max_pages: int = COUNT_MAX_PAGES, sample: int = SIZE_SAMPLE
+    ) -> AsyncIterator[dict[str, Any]]:
         """Exact count by paging ids, 500 per call, the same walk trash() does.
         Gmail's resultSizeEstimate saturates around 200, so it is useless for
-        a big mailbox. Stops after max_pages and reports capped=True."""
-        n = 0
+        a big mailbox. Yields a progress line per page, then a final line with
+        done=True, capped, and avg_bytes from a sample of evenly spaced
+        messages (Gmail only reports size per message, so exact is 50k calls)."""
+        ids: list[str] = []
         token: str | None = None
+        capped = True
         for _ in range(max_pages):
-            params: dict[str, Any] = {"q": query, "maxResults": 500, "fields": "nextPageToken,messages/id"}
+            params: dict[str, Any] = {
+                "q": query, "maxResults": 500, "fields": "nextPageToken,messages/id",
+            }
             if token:
                 params["pageToken"] = token
             data = (await self._request("GET", f"{GMAIL}/messages", params=params)).json()
-            n += len(data.get("messages", []))
+            ids.extend(m["id"] for m in data.get("messages", []))
             token = data.get("nextPageToken")
             if not token:
-                return {"count": n, "capped": False}
-        return {"count": n, "capped": True}
+                capped = False
+                break
+            yield {"count": len(ids), "capped": False, "done": False}
+
+        avg = await self.average_size(_spread(ids, sample)) if ids else 0
+        yield {"count": len(ids), "capped": capped, "done": True, "avg_bytes": avg}
+
+    async def average_size(self, ids: list[str], concurrency: int = 20) -> int:
+        """Mean sizeEstimate across the given ids, via format=minimal gets."""
+        if not ids:
+            return 0
+        sem = asyncio.Semaphore(concurrency)
+
+        async def one(i: str) -> int:
+            async with sem:
+                r = await self._request(
+                    "GET", f"{GMAIL}/messages/{i}",
+                    params={"format": "minimal", "fields": "sizeEstimate"},
+                )
+                return int(r.json().get("sizeEstimate", 0))
+
+        sizes = await asyncio.gather(*(one(i) for i in ids))
+        return sum(sizes) // len(sizes)
 
     async def message_metadata(self, msg_id: str, headers: list[str]) -> dict[str, Any]:
         params = [("format", "metadata")] + [("metadataHeaders", h) for h in headers]
@@ -164,6 +201,14 @@ class Gmail:
         for chunk in _chunks(ids, BATCH_MODIFY_MAX):
             await self._request("POST", f"{GMAIL}/messages/batchDelete", json={"ids": chunk})
         return len(ids)
+
+
+def _spread(xs: list[str], n: int) -> list[str]:
+    """Up to n items evenly spaced across xs, so a sample covers old and new alike."""
+    if len(xs) <= n:
+        return list(xs)
+    step = len(xs) / n
+    return [xs[int(i * step)] for i in range(n)]
 
 
 def _chunks(xs: list[str], n: int):
