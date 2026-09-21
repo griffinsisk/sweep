@@ -4,9 +4,9 @@ Have you been a long-time Google user and one day logged into Gmail only to find
 
 <img src="docs/out-of-storage.png" alt="Gmail banner: Out of storage. Emails will stop on Oct 9, 2026. 15.04 GB of 15 GB used." width="760">
 
-Fourteen years of newsletters. Every "your order has shipped." A 2011 video attachment of a dog. And Gmail's answer is a checkbox that selects 50 messages at a time.
+Fourteen years of newsletters. Every "your order has shipped." A 2017 video attachment of your Mom's new puppy because she hasn't quite figured out how to use cell phone just yet...
 
-If that's you, today you're in luck.
+From my experience deleting clearing up space in Gmail can be a painful process. If you agree, today you're in luck.
 
 <!-- TODO: the "after" — Sweep's gauge once the space is back, or a short GIF of Count → Trash all. -->
 
@@ -14,10 +14,10 @@ If that's you, today you're in luck.
 
 Sweep clears out years of Gmail in minutes. It runs on your own computer, talks straight to Gmail, and moves mail in batches of 1,000 instead of 50.
 
-- **Count before you act.** Pick "Promotions older than a year." Sweep tells you how many, roughly how many GB, and who sent them, before you touch anything.
-- **Then trash it.** Tens of thousands of messages, one button, a progress bar.
+- **Count before you act.** Pick "Promotions older than a year." Sweep tells you email count, roughly how many GB, and who sent them before you touch anything.
+- **Then trash it.** Tens of thousands of messages deleted with one button.
 - **Changed your mind?** Undo. Every action is reversible right up until you empty the trash.
-- **Build your own.** Older than 3 years, has an attachment, over 10 MB. No Gmail search syntax required, though you can type it if you know it.
+- **Build your own sweeps.** Older than 3 years, has an attachment over 10 MB. No Gmail search syntax required, though you can type it if you know it.
 
 Nothing is stored anywhere. Your Gmail token lives in your browser and dies when you sign out.
 
