@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
+import { loadLedger, recordFreed, startSession, summarize, Ledger } from "./ledger";
 import { api, gb, mb, BatchProgress, Count, Preset, Preview, Sender, Storage, Suggestion, TrashProgress } from "./api";
 
 type Progress = { label: string; current: number; total?: number };
@@ -109,13 +110,17 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
   };
 
   const [startUsage, setStartUsage] = useState<number | null>(null);
+  const [ledger, setLedger] = useState<Ledger>(() => loadLedger(email));
   const [refreshing, setRefreshing] = useState(false);
   const refreshStorage = async () => {
     setRefreshing(true);
     try {
       const st = await api.storage();
       setStorage(st);
-      setStartUsage((u) => (u === null && st.quota?.usage !== undefined ? st.quota.usage : u));
+      if (startUsage === null && st.quota?.usage !== undefined) {
+        setStartUsage(st.quota.usage);
+        setLedger(startSession(email, st.quota.usage));
+      }
     } catch {
       /* gauge keeps its last value */
     } finally {
@@ -141,12 +146,14 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
   };
   const onDeleted = (entry: TrashEntry) => {
     setFreedBytes((f) => f + entry.bytes);
+    setLedger(recordFreed(email, entry.bytes));
     setPendingBytes((b) => Math.max(0, b - entry.bytes));
     setLog((l) => l.filter((e) => e.id !== entry.id));
     refreshStorage();
   };
   const onEmptied = () => {
     setFreedBytes((f) => f + pendingBytes);
+    setLedger(recordFreed(email, pendingBytes));
     setPendingBytes(0);
     setLog([]);
     refreshStorage();
@@ -169,6 +176,7 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
         pendingBytes={pendingBytes}
         freedBytes={freedBytes}
         startUsage={startUsage}
+        ledger={ledger}
         refreshing={refreshing}
         onRefresh={refreshStorage}
       />
@@ -196,6 +204,7 @@ function Gauge({
   pendingBytes,
   freedBytes,
   startUsage,
+  ledger,
   refreshing,
   onRefresh,
 }: {
@@ -203,6 +212,7 @@ function Gauge({
   pendingBytes: number;
   freedBytes: number;
   startUsage: number | null;
+  ledger: Ledger;
   refreshing: boolean;
   onRefresh: () => void;
 }) {
@@ -210,6 +220,8 @@ function Gauge({
   const usage = storage?.quota?.usage ?? 0;
   // What Google itself says has gone since sign-in. Lags deletes by minutes.
   const verified = startUsage !== null ? Math.max(0, startUsage - usage) : 0;
+  const history = storage?.quota?.usage !== undefined ? summarize(ledger, storage.quota.usage) : null;
+  const returning = history !== null && history.sessions > 1;
   const usedPct = Math.min(100, (Math.max(0, usage - pendingBytes) / limit) * 100);
   const pendingPct = Math.min(100 - usedPct, (pendingBytes / limit) * 100);
 
@@ -252,6 +264,18 @@ function Gauge({
           {refreshing ? "Refreshing…" : "Refresh from Google"}
         </button>
       </div>
+      {returning && history && (
+        <p
+          className="sub history"
+          title="From this browser's history for this account. Confirmed is Google's usage at your first session minus now; estimated is the sum of Sweep's sample-based figures for everything you permanently deleted."
+        >
+          Since your first session on{" "}
+          {history.firstAt.toLocaleDateString(undefined, { month: "short", day: "numeric" })}: Google
+          reports <strong>{gb(history.confirmedSinceFirst)} GB</strong> less
+          {history.estimatedSinceFirst > 0 && <> (Sweep estimated ≈ {gb(history.estimatedSinceFirst)} GB)</>}
+          . {history.sessions} sessions.
+        </p>
+      )}
       {freedBytes > 0 && verified < freedBytes * 0.5 && (
         <p className="sub" style={{ marginTop: 8, fontSize: 13 }}>
           Google updates its storage figure minutes to hours after a permanent delete. The
