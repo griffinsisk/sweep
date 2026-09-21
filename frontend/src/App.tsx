@@ -139,6 +139,7 @@ function Presets({ onTrashed }: { onTrashed: (n: number) => void }) {
     set(p.key, { kind: "counting" });
     try {
       const result = await api.presetCount(p.key);
+      if (typeof result?.count !== "number") throw new Error("Unexpected response. Restart sweep.");
       setCounts((c) => ({ ...c, [p.key]: result }));
       set(p.key, { kind: "idle" });
     } catch (e) {
