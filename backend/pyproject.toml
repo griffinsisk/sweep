@@ -1,7 +1,8 @@
 [project]
-name = "sweep-backend"
-version = "0.1.0"
-description = "FastAPI backend for Sweep — bulk Gmail cleanup"
+name = "sweep-gmail"
+version = "0.2.0"
+description = "Bulk Gmail cleanup that runs on your own machine"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115",
@@ -12,14 +13,29 @@ dependencies = [
   "anthropic>=0.40",
 ]
 
+[project.scripts]
+sweep = "sweep.cli:main"
+
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6", "build>=1.2"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["app*"]
+include = ["sweep*"]
+
+# The built frontend lives in sweep/static/ (written by `npm run build`)
+# and ships inside the wheel, so end users never need Node.
+[tool.setuptools.package-data]
+sweep = ["static/**/*"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]  # ruff's classic defaults; 0.16 widened them
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -28,7 +28,7 @@ async def exchange_code(code: str) -> dict[str, Any]:
                 "code": code,
                 "client_id": settings.google_client_id,
                 "client_secret": settings.google_client_secret,
-                "redirect_uri": settings.google_redirect_uri,
+                "redirect_uri": settings.redirect_uri,
                 "grant_type": "authorization_code",
             },
         )

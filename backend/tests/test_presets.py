@@ -1,4 +1,4 @@
-from app.presets import PRESET_INDEX, PRESETS
+from sweep.presets import PRESET_INDEX, PRESETS
 
 
 def test_preset_keys_unique():

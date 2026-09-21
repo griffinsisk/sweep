@@ -1,4 +1,4 @@
-from app.routers.senders import parse_from, parse_unsubscribe
+from sweep.routers.senders import parse_from, parse_unsubscribe
 
 
 def test_parse_from_with_display_name():

@@ -19,7 +19,7 @@ async def login():
     state = secrets.token_urlsafe(24)
     params = {
         "client_id": settings.google_client_id,
-        "redirect_uri": settings.google_redirect_uri,
+        "redirect_uri": settings.redirect_uri,
         "response_type": "code",
         "scope": " ".join(settings.scopes),
         "access_type": "offline",  # get a refresh token
@@ -46,7 +46,7 @@ async def callback(request: Request, code: str | None = None, state: str | None 
         refresh_token=tokens.get("refresh_token"),
         email=email,
     )
-    resp = RedirectResponse(settings.frontend_origin)
+    resp = RedirectResponse(settings.after_login_url)
     write_session(resp, session)
     resp.delete_cookie(STATE_COOKIE, path="/")
     return resp
@@ -54,11 +54,11 @@ async def callback(request: Request, code: str | None = None, state: str | None 
 
 @router.get("/me")
 async def me(session: Session = Depends(read_session)):
-    return {"email": session.email}
+    return {"email": session.email, "ai_enabled": bool(settings.anthropic_api_key)}
 
 
 @router.post("/logout")
 async def logout():
-    resp = RedirectResponse(settings.frontend_origin, status_code=303)
+    resp = RedirectResponse(settings.after_login_url, status_code=303)
     clear_session(resp)
     return resp

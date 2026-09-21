@@ -2,9 +2,9 @@
 
 Clear out years of Gmail in minutes, not hours.
 
-Gmail's web UI caps bulk actions at 50 conversations per click. Sweep uses the Gmail API's `batchModify` endpoint (1,000 messages per request) to trash tens of thousands of messages in a few dozen calls, groups the rest by sender so you can see who's actually filling your inbox, and asks Claude to suggest what to keep, unsubscribe from, or trash.
+Gmail's web UI caps bulk actions at 50 conversations per click. Sweep uses the Gmail API's `batchModify` endpoint (1,000 messages per request) to trash tens of thousands of messages in a few dozen calls, groups the rest by sender so you can see who's actually filling your inbox, and optionally asks Claude to suggest what to keep, unsubscribe from, or trash.
 
-Nothing is stored server-side. Your Gmail token lives in an encrypted, httpOnly cookie and is gone when you sign out.
+It runs on your own machine. One command starts a local server and opens your browser. Nothing is stored anywhere: your Gmail token lives in an encrypted, httpOnly cookie and is gone when you sign out.
 
 ## What it does
 
@@ -14,24 +14,36 @@ Nothing is stored server-side. Your Gmail token lives in an encrypted, httpOnly 
 - **Empty trash** — because moving to trash doesn't free storage. Hard confirmation required
 - **Storage gauge** — live quota from Google, plus "freed this session"
 
+## Quick start
+
+You need a Google Cloud project of your own (about 10 minutes, one time) because Google restricts the Gmail scope Sweep uses. [SETUP.md](SETUP.md) walks through it. Then:
+
+```bash
+uv tool install https://github.com/griffinsisk/sweep/releases/latest/download/sweep_gmail-0.2.0-py3-none-any.whl
+export GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...
+sweep
+```
+
 ## Architecture
 
+One Python process. FastAPI serves the API and the compiled React frontend from the same port on `127.0.0.1`.
+
 ```
-frontend/   Vite + React + TypeScript      → static site (Vercel / Netlify / Pages)
-backend/    FastAPI                        → Fly.io / Render / Railway
+backend/    FastAPI + the `sweep` command       python package, ships the built UI
+frontend/   Vite + React + TypeScript            builds into backend/sweep/static/
 ```
 
 Flow:
 
-1. Browser hits `/auth/login` → redirected to Google's consent screen
-2. Google redirects to `/auth/callback` → backend exchanges the code for tokens
-3. Tokens are encrypted (Fernet) into an httpOnly cookie. No database
-4. Frontend calls `/api/*`; backend decrypts the cookie, calls Gmail REST, refreshes the token on 401
-5. `/api/ai/suggest` sends **only** sender domain, count, and up to 3 subject lines to Claude — never bodies, never recipients
+1. `sweep` starts uvicorn on 127.0.0.1 and opens the browser
+2. Sign in redirects to Google's consent screen and back to `/auth/callback`
+3. Tokens are encrypted with a key generated at startup into an httpOnly cookie. No database, no files
+4. The UI calls `/api/*`; the server decrypts the cookie, calls Gmail REST, refreshes the token on 401
+5. `/api/ai/suggest` sends **only** sender domain, count, and up to 3 subject lines to Claude. Never bodies, never recipients. Off unless you set an Anthropic key
 
-### Why a backend at all?
+### Why self-hosted?
 
-The Anthropic key can't live in the browser. Once there's a server, doing the OAuth code exchange there too (with the client secret) is the more secure option. The tradeoff: a server that touches Gmail data means Google's CASA security assessment applies if this is ever verified for public use. See [PLAN.md](PLAN.md) for the go-live path.
+`gmail.modify` is a restricted scope. A hosted copy would serve at most 100 named test users until it passed Google's verification, which for an app whose server touches Gmail data means an annual CASA security assessment. Running locally means anyone can use it today, the tokens never leave their machine, and the verification question goes away. See [PLAN.md](PLAN.md).
 
 ## Scopes requested
 
@@ -41,17 +53,9 @@ The Anthropic key can't live in the browser. Once there's a server, doing the OA
 | `drive.metadata.readonly` | read storage quota for the gauge (optional — drop it and the gauge falls back to message counts) |
 | `openid email` | show which account is signed in |
 
-## Local development
+## Developing
 
-Prereqs: Python 3.11+, Node 20+, a Google Cloud project with the Gmail API enabled and an OAuth 2.0 Web client.
-
-```bash
-cp .env.example backend/.env         # fill in Google + Anthropic credentials
-cd backend && pip install -e ".[dev]" && uvicorn app.main:app --reload
-cd frontend && npm install && npm run dev
-```
-
-Open http://localhost:5173. In Google Cloud Console, add `http://localhost:8000/auth/callback` as an authorized redirect URI and add your own Gmail address as a **test user** on the OAuth consent screen.
+See the Developing section of [SETUP.md](SETUP.md).
 
 ## Status
 

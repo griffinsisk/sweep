@@ -6,6 +6,7 @@
 
 ## v1 — "done" means
 
+- [ ] One command installs and runs it locally; the only external setup is the Google Cloud project
 - [ ] Sign in with Google, see storage used / total
 - [ ] Run any preset: preview a count, trash in batches of 1,000 via `batchModify`
 - [ ] Senders view: top 50 senders by count, trash-all per sender, unsubscribe link where present
@@ -25,13 +26,13 @@ Everything else is v2.
 | 3 | Senders view + `List-Unsubscribe` | The thing Gmail's UI can't do |
 | 4 | Claude suggestions | Turns a script into an assistant |
 | 5 | Polish, docs, demo video | Portfolio deliverables |
-| 6 | *(stretch)* Google OAuth verification | Open to the public |
+| 6 | MCP server over the same primitives | Claude Desktop can drive the cleanup with the same confirmation gates |
 
-## Go-live path
+## Distribution
 
-**Testing mode (v1 launch).** Google lets an unverified app run with up to 100 named test users. That's you, anyone you invite, and anyone who asks. Fully functional, no review.
+**Self-hosted (decided 2026-09-21).** Each user creates their own Google Cloud project and runs Sweep on their own machine with `uv tool install` or `pipx`. The compiled frontend ships inside the Python wheel so nobody needs Node.
 
-**Verified (stretch).** `gmail.modify` is a restricted scope. Verification needs a hosted privacy policy and homepage, a demo video of the consent flow, brand verification (2–3 business days), and — because the backend handles Gmail data — a CASA Tier 2 assessment by a Google-approved lab, repeated annually. Budget a few hundred dollars and several weeks. Decide whether it's worth it after v1 has real users.
+**Why not hosted.** Google lets an unverified app run only for up to 100 named test users. Going past that needs verification: a hosted privacy policy and homepage, a demo video of the consent flow, brand verification, and, because a backend would handle Gmail data, a CASA Tier 2 assessment by a Google-approved lab repeated annually. Self-hosting sidesteps all of it and gives a stronger privacy story. Revisit only if there is real demand from people who will not do the 10-minute Google setup.
 
 ## v2 backlog
 

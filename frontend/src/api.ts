@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_BASE ?? "";
+const BASE = "";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(BASE + path, {
@@ -28,7 +28,7 @@ export type Sender = {
 export type Suggestion = { address: string; action: "keep" | "unsubscribe" | "trash"; reason: string };
 
 export const api = {
-  me: () => req<{ email: string }>("/auth/me"),
+  me: () => req<{ email: string; ai_enabled: boolean }>("/auth/me"),
   loginUrl: BASE + "/auth/login",
   logout: () => fetch(BASE + "/auth/logout", { method: "POST", credentials: "include" }),
   storage: () => req<Storage>("/api/storage"),

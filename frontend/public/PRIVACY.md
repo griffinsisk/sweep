@@ -4,7 +4,9 @@ Sweep is a tool for cleaning up your own Gmail. This is what it does with your d
 
 **What it accesses.** With your permission, Sweep reads message metadata (sender, subject, date, size, labels) and moves or deletes messages you choose. It reads your Google storage quota to show how much space you have.
 
-**What it stores.** Nothing. Your Google access and refresh tokens are encrypted and stored in a cookie in your browser. The server holds nothing between requests. Signing out deletes the cookie.
+**Where it runs.** On your own computer. There is no hosted service. The only server involved is the one Sweep starts on your machine, and it talks directly to Google.
+
+**What it stores.** Nothing. Your Google access and refresh tokens are encrypted and stored in a cookie in your browser. The local server holds nothing between requests, and the encryption key is regenerated each time it starts. Signing out deletes the cookie.
 
 **What it sends to third parties.** When you ask for suggestions, Sweep sends sender domains, message counts, and up to three subject lines per sender to Anthropic's Claude API to classify them. It never sends message bodies, recipients, or your email address.
 

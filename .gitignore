@@ -12,10 +12,12 @@ __pycache__/
 
 # node
 node_modules/
-frontend/dist/
+backend/sweep/static/
+dist/
 
 # editors
 .vscode/
 .idea/
 .DS_Store
 frontend/tsconfig.tsbuildinfo
+build/

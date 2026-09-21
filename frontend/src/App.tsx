@@ -5,19 +5,23 @@ type Status = { kind: "idle" | "counting" | "working" | "ok" | "err"; text?: str
 
 export default function App() {
   const [email, setEmail] = useState<string | null>(null);
+  const [aiEnabled, setAiEnabled] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
     api
       .me()
-      .then((m) => setEmail(m.email))
+      .then((m) => {
+        setEmail(m.email);
+        setAiEnabled(m.ai_enabled);
+      })
       .catch(() => setEmail(null))
       .finally(() => setAuthChecked(true));
   }, []);
 
   if (!authChecked) return null;
   if (!email) return <SignIn />;
-  return <Dashboard email={email} />;
+  return <Dashboard email={email} aiEnabled={aiEnabled} />;
 }
 
 function SignIn() {
@@ -32,14 +36,14 @@ function SignIn() {
         Sign in with Google
       </a>
       <p className="fine">
-        Nothing is stored on our servers. Your Google token lives in your browser and is
+        Sweep runs on your own computer. Your Google token lives in your browser and is
         gone when you sign out. <a href="/PRIVACY.md">How your data is handled</a>
       </p>
     </main>
   );
 }
 
-function Dashboard({ email }: { email: string }) {
+function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) {
   const [storage, setStorage] = useState<Storage | null>(null);
   const [trashedThisSession, setTrashedThisSession] = useState(0);
   const [freedBytes, setFreedBytes] = useState(0);
@@ -75,7 +79,7 @@ function Dashboard({ email }: { email: string }) {
       <Gauge storage={storage} pendingBytes={pendingBytes} freedBytes={freedBytes} />
 
       <Presets onTrashed={onTrashed} />
-      <Senders onTrashed={onTrashed} />
+      <Senders onTrashed={onTrashed} aiEnabled={aiEnabled} />
       <EmptyTrash trashedThisSession={trashedThisSession} onEmptied={onEmptied} />
     </main>
   );
@@ -198,7 +202,13 @@ function Presets({ onTrashed }: { onTrashed: (n: number) => void }) {
   );
 }
 
-function Senders({ onTrashed }: { onTrashed: (n: number, bytes: number) => void }) {
+function Senders({
+  onTrashed,
+  aiEnabled,
+}: {
+  onTrashed: (n: number, bytes: number) => void;
+  aiEnabled: boolean;
+}) {
   const [senders, setSenders] = useState<Sender[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
@@ -252,10 +262,15 @@ function Senders({ onTrashed }: { onTrashed: (n: number, bytes: number) => void 
         <button className="btn" onClick={load} disabled={loading}>
           {loading ? "Scanning 1,000 messages…" : senders ? "Rescan" : "Scan my inbox"}
         </button>
-        {senders && (
+        {senders && aiEnabled && (
           <button className="btn" onClick={suggest} disabled={suggesting}>
             {suggesting ? "Asking Claude…" : "Ask Claude what to do"}
           </button>
+        )}
+        {senders && !aiEnabled && (
+          <span className="hint" style={{ color: "var(--muted)", fontSize: 13 }}>
+            Claude suggestions are off. Set ANTHROPIC_API_KEY to enable them.
+          </span>
         )}
         {senders && (
           <span className="hint" style={{ color: "var(--muted)", fontSize: 13 }}>
