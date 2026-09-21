@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     google_redirect_uri: str = ""
 
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_model: str = "claude-sonnet-5"
 
     # Fernet key for the session cookie. Generated fresh at startup when
     # unset: on a laptop, "restart the server == sign in again" is fine.
