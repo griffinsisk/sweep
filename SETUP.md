@@ -8,21 +8,30 @@ Sweep asks for the `gmail.modify` scope, which Google restricts. That means ever
 
 1. Open https://console.cloud.google.com and create a new project. Name it anything, for example `sweep`.
 2. **APIs & Services → Library**. Enable **Gmail API** and **Google Drive API**. (Drive is only used to read your storage quota. Skip it and the gauge falls back to message counts.)
-3. **APIs & Services → OAuth consent screen**
-   - User type: **External**
-   - App name: Sweep. Support email and developer contact: your own address.
-   - Scopes → Add: `gmail.modify`, `drive.metadata.readonly`, `userinfo.email`, `openid`
-   - **Test users → Add** your Gmail address. Leave the publishing status as **Testing**.
-4. **APIs & Services → Credentials → Create credentials → OAuth client ID**
-   - Application type: **Desktop app**
-   - Copy the client ID and client secret. For a Desktop app client, Google does not treat the secret as confidential.
+3. **APIs & Services → Google Auth Platform** (Google's current name for the OAuth consent screen). If it asks you to configure the app first, click through. Then use the left sidebar:
+   - **Branding**: App name `Sweep`, support email and developer contact set to your own address.
+   - **Audience**: User type **External**. Leave publishing status as **Testing**. Under **Test users → Add users**, add your Gmail address.
+   - **Data Access → Add or remove scopes**. Paste these into the "Manually add scopes" box, then **Update** and **Save**:
+     ```
+     https://www.googleapis.com/auth/gmail.modify
+     https://www.googleapis.com/auth/drive.metadata.readonly
+     https://www.googleapis.com/auth/userinfo.email
+     openid
+     ```
+   - **Clients → Create client**. Application type **Desktop app**. Copy the client ID and client secret. For a Desktop app client, Google does not treat the secret as confidential.
+
+   The Settings page in that sidebar is not needed.
 
 ## 2. Install and run
 
 Requires Python 3.11 or newer. Pick one:
 
 ```bash
-# uv (recommended)
+# from a clone (works today)
+git clone https://github.com/griffinsisk/sweep && cd sweep/backend
+uv tool install .
+
+# uv, from the release wheel (once a v* tag has been pushed)
 uv tool install https://github.com/griffinsisk/sweep/releases/latest/download/sweep_gmail-0.2.0-py3-none-any.whl
 
 # pipx
