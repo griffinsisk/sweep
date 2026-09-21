@@ -76,6 +76,7 @@ section > p.lede { color: var(--muted); margin: 0 0 20px; max-width: 60ch; }
 .row code { font-size: 12px; color: var(--muted); background: var(--bg); padding: 1px 6px; border-radius: 3px; }
 .row .count { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; min-width: 9ch; text-align: right; }
 .row .count .size { font-size: 12px; margin-top: 2px; }
+.row .count .none { font-weight: 600; }
 .row .status { grid-column: 1 / -1; font-size: 13px; color: var(--muted); margin-top: -6px; }
 .row .status.ok { color: var(--freed); }
 .row .status.err { color: var(--danger); }

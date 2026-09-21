@@ -294,6 +294,11 @@ function useQueryActions(onTrashed: (t: Trashed) => void) {
   const set = (k: string, s: Status) => setStatus((p) => ({ ...p, [k]: s }));
 
   const stop = (key: string) => aborts.current[key]?.abort();
+  /** Forget a row's count and status, e.g. when its query changes. */
+  const clear = (key: string) => {
+    setCounts(({ [key]: _, ...rest }) => rest);
+    setStatus(({ [key]: _, ...rest }) => rest);
+  };
 
   const count = async (key: string, open: (signal: AbortSignal) => AsyncGenerator<Count>) => {
     const ctl = new AbortController();
@@ -311,6 +316,13 @@ function useQueryActions(onTrashed: (t: Trashed) => void) {
         // Stream ended without a final line: keep the count, skip the size estimate.
         setCounts((c) => ({ ...c, [key]: { ...last!, done: true } }));
         set(key, { kind: "err", text: "Count finished early; size estimate unavailable." });
+        return;
+      }
+      if (last && last.count === 0) {
+        set(key, {
+          kind: "idle",
+          text: "Nothing matches this search right now. If you already trashed these, that is why. Try a different age or kind of mail.",
+        });
         return;
       }
       set(key, { kind: "idle" });
@@ -365,7 +377,7 @@ function useQueryActions(onTrashed: (t: Trashed) => void) {
     }
   };
 
-  return { status, counts, count, stop, trash };
+  return { status, counts, count, stop, trash, clear };
 }
 
 /** What a query holds, from the 100-message sample Count already fetched. */
@@ -441,6 +453,7 @@ function Presets({
         {presets.map((p) => {
           const s = status[p.key] ?? { kind: "idle" };
           const busy = s.kind === "working" || s.kind === "counting";
+          const empty = counts[p.key]?.done && counts[p.key].count === 0;
           return (
             <div className="row" key={p.key}>
               <div>
@@ -471,7 +484,8 @@ function Presets({
                 )}
                 <button
                   className="btn danger"
-                  disabled={busy}
+                  disabled={busy || empty}
+                  title={empty ? "Nothing to trash" : undefined}
                   onClick={() => trash(p.key, p.label, p.query, () => api.presetTrash(p.key))}
                 >
                   Trash all
@@ -554,7 +568,7 @@ const QueryBuilder = forwardRef<
 >(function QueryBuilder({ seed, onTrashed }, ref) {
   const [controls, setControls] = useState<Controls>(EMPTY);
   const [query, setQuery] = useState("");
-  const { status, counts, count, stop, trash } = useQueryActions(onTrashed);
+  const { status, counts, count, stop, trash, clear } = useQueryActions(onTrashed);
   const reset = () => {
     setControls(EMPTY);
     setQuery("");
@@ -571,6 +585,7 @@ const QueryBuilder = forwardRef<
     const next = { ...controls, ...patch };
     setControls(next);
     setQuery(buildQuery(next));
+    clear(key);
   };
   const toggleCat = (cat: string) =>
     update({ cats: controls.cats.includes(cat) ? controls.cats.filter((x) => x !== cat) : [...controls.cats, cat] });
@@ -579,6 +594,7 @@ const QueryBuilder = forwardRef<
   const s = status[key] ?? { kind: "idle" };
   const busy = s.kind === "working" || s.kind === "counting";
   const ready = query.trim().length > 0;
+  const empty = counts[key]?.done && counts[key].count === 0;
 
   return (
     <section ref={ref}>
@@ -646,7 +662,10 @@ const QueryBuilder = forwardRef<
               className="query"
               value={query}
               disabled={busy}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                clear(key);
+              }}
               placeholder="e.g. category:social older_than:3y"
               spellCheck={false}
               aria-label="Gmail search query"
@@ -672,7 +691,8 @@ const QueryBuilder = forwardRef<
             )}
             <button
               className="btn danger"
-              disabled={busy || !ready}
+              disabled={busy || !ready || empty}
+              title={empty ? "Nothing to trash" : undefined}
               onClick={() => trash(key, `Custom: ${query}`, query, () => api.queryTrash(query), reset)}
             >
               Trash all
@@ -692,6 +712,7 @@ function CountCell({ c, counting }: { c?: Count; counting: boolean }) {
   if (!c) return counting ? <>counting…</> : null;
   const n = `${c.count.toLocaleString()}${c.capped ? "+" : ""}`;
   if (counting || !c.done) return <>{n}…</>;
+  if (c.count === 0) return <span className="none">No matches</span>;
   const bytes = c.count * (c.avg_bytes ?? 0);
   return (
     <>
