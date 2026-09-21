@@ -12,17 +12,21 @@ written: unattended
 ---
 
 ## Where it stands
-The app now runs as a single Python process that serves its own compiled UI on 127.0.0.1 and opens the browser. Google OAuth uses a Desktop app client with a loopback redirect, so the only external setup is the user's own Google Cloud project. Claude suggestions are optional and the UI says so when no key is set. The wheel builds with the UI inside it and CI is set to attach it to a GitHub Release on tags. Nothing has been run against a real mailbox since the restructure, and the repo has no GitHub remote yet.
+Sweep runs as one local Python process serving its own UI, installed from a wheel, and is public at github.com/griffinsisk/sweep with v0.2.0 tagged. Griffin has run it end to end on his own mailbox: sign-in, counts, trash, undo, permanent delete, with Google confirming several GB freed. Today's session added a query builder, streamed counts with size estimates and previews, per-action undo and delete, progress bars, and a per-day history ledger. The consent-screen walk-through is verified against Google's current console. The MCP server is the next major piece.
 
 ## Recently finished
+- Public GitHub repo with v0.2.0 tagged; CI builds the wheel and attaches it to the release *(Sep 21)*
+- Full live run on a real mailbox: OAuth, count, trash, undo, permanent delete all verified *(Sep 21)*
+- Query builder with age, kind, and size controls; presets load into it via Customize *(Sep 21)*
+- Streamed progress for count, trash, undo, delete; sizes in Gmail's units with Google-confirmed figures *(Sep 21)*
 - Sweep runs as one local process installed from a wheel, no Node or Docker for end users *(Sep 21)*
-- Repo extracted from the home directory into its own git history *(Sep 21)*
 
 ## Still open
-- [ ] Real-mailbox run through sign-in, trash, and empty trash on the single-process build — proves the restructure did not break OAuth
-- [ ] Push to GitHub and tag v0.2.0 — the install URLs in README and SETUP resolve
+- [ ] Confirm the v0.2.0 release carries the wheel and the SETUP.md install URL resolves — a stranger can install without cloning
 - [ ] Time a first-time user through SETUP.md — the Google Cloud walk-through is under 10 minutes or gets screenshots
+- [ ] Senders view: real per-sender totals and a configurable sample — the table's counts mean what they look like they mean
+- [ ] Claude "anything I should keep?" on the preview sample — flags exceptions in a query before trashing, off without a key
 - [ ] MCP server exposing count, trash, senders, and empty trash — Claude Desktop can drive a cleanup with the same confirmation gates
 
 ## Pick up here
-Run `sweep` against your own Gmail with a fresh Desktop app OAuth client and confirm the full flow works.
+Check the v0.2.0 release has the wheel, then start the MCP server over the existing count/trash/senders/untrash primitives.
