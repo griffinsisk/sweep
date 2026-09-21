@@ -12,6 +12,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export type Preset = { key: string; label: string; query: string; hint: string };
+export type Count = { count: number; capped: boolean };
 export type Storage = {
   messagesTotal: number | null;
   quota: { limit?: number; usage?: number; usageInDrive?: number } | null;
@@ -33,7 +34,7 @@ export const api = {
   logout: () => fetch(BASE + "/auth/logout", { method: "POST", credentials: "include" }),
   storage: () => req<Storage>("/api/storage"),
   presets: () => req<Preset[]>("/api/presets"),
-  presetCount: (k: string) => req<{ estimate: number }>(`/api/presets/${k}/count`),
+  presetCount: (k: string) => req<Count>(`/api/presets/${k}/count`),
   presetTrash: (k: string) => req<{ trashed: number }>(`/api/presets/${k}/trash`, { method: "POST" }),
   queryTrash: (query: string) =>
     req<{ trashed: number }>("/api/query/trash", { method: "POST", body: JSON.stringify({ query }) }),

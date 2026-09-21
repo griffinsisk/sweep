@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, gb, Preset, Sender, Storage, Suggestion } from "./api";
+import { api, gb, Count, Preset, Sender, Storage, Suggestion } from "./api";
 
 type Status = { kind: "idle" | "counting" | "working" | "ok" | "err"; text?: string };
 
@@ -127,7 +127,7 @@ function Gauge({
 function Presets({ onTrashed }: { onTrashed: (n: number) => void }) {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [status, setStatus] = useState<Record<string, Status>>({});
-  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [counts, setCounts] = useState<Record<string, Count>>({});
 
   useEffect(() => {
     api.presets().then(setPresets);
@@ -138,8 +138,8 @@ function Presets({ onTrashed }: { onTrashed: (n: number) => void }) {
   const count = async (p: Preset) => {
     set(p.key, { kind: "counting" });
     try {
-      const { estimate } = await api.presetCount(p.key);
-      setCounts((c) => ({ ...c, [p.key]: estimate }));
+      const result = await api.presetCount(p.key);
+      setCounts((c) => ({ ...c, [p.key]: result }));
       set(p.key, { kind: "idle" });
     } catch (e) {
       set(p.key, { kind: "err", text: String(e) });
@@ -152,7 +152,7 @@ function Presets({ onTrashed }: { onTrashed: (n: number) => void }) {
     try {
       const { trashed } = await api.presetTrash(p.key);
       onTrashed(trashed);
-      setCounts((c) => ({ ...c, [p.key]: 0 }));
+      setCounts((c) => ({ ...c, [p.key]: { count: 0, capped: false } }));
       set(p.key, { kind: "ok", text: `Moved ${trashed.toLocaleString()} messages to Trash.` });
     } catch (e) {
       set(p.key, { kind: "err", text: String(e) });
@@ -182,7 +182,7 @@ function Presets({ onTrashed }: { onTrashed: (n: number) => void }) {
                 {s.kind === "counting"
                   ? "counting…"
                   : counts[p.key] !== undefined
-                  ? `~${counts[p.key].toLocaleString()}`
+                  ? `${counts[p.key].count.toLocaleString()}${counts[p.key].capped ? "+" : ""}`
                   : ""}
               </div>
               <div style={{ display: "flex", gap: 8 }}>

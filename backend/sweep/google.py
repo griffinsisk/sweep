@@ -18,6 +18,7 @@ DRIVE_ABOUT = "https://www.googleapis.com/drive/v3/about"
 USERINFO = "https://openidconnect.googleapis.com/v1/userinfo"
 
 BATCH_MODIFY_MAX = 1000  # Gmail hard limit per batchModify / batchDelete call
+COUNT_MAX_PAGES = 100  # 100 pages x 500 ids = 50,000; past that the UI shows "50,000+"
 
 
 async def exchange_code(code: str) -> dict[str, Any]:
@@ -114,12 +115,22 @@ class Gmail:
                 break
         return ids[:limit] if limit else ids
 
-    async def estimate_count(self, query: str) -> dict[str, Any]:
-        """Cheap count: Gmail's resultSizeEstimate is rough but instant."""
-        data = (
-            await self._request("GET", f"{GMAIL}/messages", params={"q": query, "maxResults": 1})
-        ).json()
-        return {"estimate": data.get("resultSizeEstimate", 0)}
+    async def count(self, query: str, max_pages: int = COUNT_MAX_PAGES) -> dict[str, Any]:
+        """Exact count by paging ids, 500 per call, the same walk trash() does.
+        Gmail's resultSizeEstimate saturates around 200, so it is useless for
+        a big mailbox. Stops after max_pages and reports capped=True."""
+        n = 0
+        token: str | None = None
+        for _ in range(max_pages):
+            params: dict[str, Any] = {"q": query, "maxResults": 500, "fields": "nextPageToken,messages/id"}
+            if token:
+                params["pageToken"] = token
+            data = (await self._request("GET", f"{GMAIL}/messages", params=params)).json()
+            n += len(data.get("messages", []))
+            token = data.get("nextPageToken")
+            if not token:
+                return {"count": n, "capped": False}
+        return {"count": n, "capped": True}
 
     async def message_metadata(self, msg_id: str, headers: list[str]) -> dict[str, Any]:
         params = [("format", "metadata")] + [("metadataHeaders", h) for h in headers]

@@ -22,7 +22,7 @@ async def list_presets():
 @router.get("/presets/{key}/count")
 async def preset_count(key: str, gmail: Gmail = Depends(gmail_client)):
     preset = PRESET_INDEX.get(key) or _404(key)
-    return await gmail.estimate_count(preset.query)
+    return await gmail.count(preset.query)
 
 
 class TrashResult(BaseModel):
@@ -46,7 +46,7 @@ class QueryBody(BaseModel):
 
 @router.post("/query/count")
 async def query_count(body: QueryBody, gmail: Gmail = Depends(gmail_client)):
-    return await gmail.estimate_count(body.query)
+    return await gmail.count(body.query)
 
 
 @router.post("/query/trash", response_model=TrashResult)
