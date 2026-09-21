@@ -22,11 +22,10 @@ Sweep runs as one local Python process serving its own UI, installed from a whee
 - Sweep runs as one local process installed from a wheel, no Node or Docker for end users *(Sep 21)*
 
 ## Still open
-- [ ] Confirm the v0.2.0 release carries the wheel and the SETUP.md install URL resolves — a stranger can install without cloning
 - [ ] Time a first-time user through SETUP.md — the Google Cloud walk-through is under 10 minutes or gets screenshots
 - [ ] Senders view: real per-sender totals and a configurable sample — the table's counts mean what they look like they mean
 - [ ] Claude "anything I should keep?" on the preview sample — flags exceptions in a query before trashing, off without a key
 - [ ] MCP server exposing count, trash, senders, and empty trash — Claude Desktop can drive a cleanup with the same confirmation gates
 
 ## Pick up here
-Check the v0.2.0 release has the wheel, then start the MCP server over the existing count/trash/senders/untrash primitives.
+Start the MCP server over the existing count/trash/senders/untrash primitives, with the same confirmation gates.

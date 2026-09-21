@@ -19,7 +19,7 @@
 ## Sessions
 ### 2026-09-21
 Landed
-- Public repo github.com/griffinsisk/sweep, main pushed, v0.2.0 tagged; CI release job attaches the wheel — `gh repo create --public --push`, `git push origin v0.2.0`
+- Public repo github.com/griffinsisk/sweep, v0.2.0 released with `sweep_gmail-0.2.0-py3-none-any.whl` (75,905 bytes) attached by CI; SETUP.md latest-release URL returns 200 — tag had to be re-pushed once, the first push right after repo creation fired no workflow
 - Live end-to-end on Griffin's Gmail: Desktop OAuth client + loopback redirect signs in; counts, trash, undo, Delete forever all ran; Google confirmed ~4.7 GB freed
 - Query builder (age/kind/size → editable Gmail query), Customize links on presets, presets swapped (drop 25MB, add forums + unsubscribe) — `App.tsx` QueryBuilder
 - Count streams NDJSON per 500-id page, capped at 100 pages (50,000+), final line carries avg_bytes + preview from a 100-message even-spread sample — `Gmail.count_stream`, 20 tests
@@ -29,7 +29,6 @@ Landed
 - Sizes divide by 2^30 to match Gmail's display; legend shows ≈estimate vs Google-confirmed; per-day localStorage ledger — `ledger.ts`
 - Gmail 204 No Content on messages.list with a fields mask = zero matches; mapped to {} in `Gmail._json` (found via response-context logging, after two wrong guesses)
 Did not land
-- Release wheel verification — CI was still running at session end; SETUP.md install URL assumes `sweep_gmail-0.2.0-py3-none-any.whl` on the latest release
 - Ledger cannot backfill the ~4.7 GB freed before it existed; a manual starting-figure knob was offered and not built
 Surfaced
 - resultSizeEstimate saturates ~201; never use it for counts
