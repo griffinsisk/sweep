@@ -2,13 +2,13 @@
 
 Have you been a long-time Google user and one day logged into Gmail only to find this dreaded message?
 
-> ⚠️ **You're out of storage.** You can't send or receive emails until you free up space.
+<img src="docs/out-of-storage.png" alt="Gmail banner: Out of storage. Emails will stop on Oct 9, 2026. 15.04 GB of 15 GB used." width="760">
 
 Fourteen years of newsletters. Every "your order has shipped." A 2011 video attachment of a dog. And Gmail's answer is a checkbox that selects 50 messages at a time.
 
 If that's you, today you're in luck.
 
-<!-- TODO: screenshot or GIF here. The gauge before and after, or Count → Trash all → progress bar. -->
+<!-- TODO: the "after" — Sweep's gauge once the space is back, or a short GIF of Count → Trash all. -->
 
 ## What Sweep does
 
