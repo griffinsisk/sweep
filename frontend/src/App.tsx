@@ -108,7 +108,20 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
     builderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const refreshStorage = () => api.storage().then(setStorage).catch(() => {});
+  const [startUsage, setStartUsage] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshStorage = async () => {
+    setRefreshing(true);
+    try {
+      const st = await api.storage();
+      setStorage(st);
+      setStartUsage((u) => (u === null && st.quota?.usage !== undefined ? st.quota.usage : u));
+    } catch {
+      /* gauge keeps its last value */
+    } finally {
+      setRefreshing(false);
+    }
+  };
   useEffect(() => {
     refreshStorage();
   }, []);
@@ -151,7 +164,14 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
         </span>
       </header>
 
-      <Gauge storage={storage} pendingBytes={pendingBytes} freedBytes={freedBytes} />
+      <Gauge
+        storage={storage}
+        pendingBytes={pendingBytes}
+        freedBytes={freedBytes}
+        startUsage={startUsage}
+        refreshing={refreshing}
+        onRefresh={refreshStorage}
+      />
 
       <Presets onTrashed={onTrashed} onCustomize={customize} />
       <QueryBuilder ref={builderRef} seed={seed} onTrashed={onTrashed} />
@@ -160,6 +180,7 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
         onTrashed={(n, bytes, sender, ids) => onTrashed({ trashed: n, bytes, ids, label: sender, query: "" })}
       />
       <EmptyTrash
+        email={email}
         trashedThisSession={trashedThisSession}
         log={log}
         onRestored={onRestored}
@@ -174,13 +195,21 @@ function Gauge({
   storage,
   pendingBytes,
   freedBytes,
+  startUsage,
+  refreshing,
+  onRefresh,
 }: {
   storage: Storage | null;
   pendingBytes: number;
   freedBytes: number;
+  startUsage: number | null;
+  refreshing: boolean;
+  onRefresh: () => void;
 }) {
   const limit = storage?.quota?.limit ?? 15e9;
   const usage = storage?.quota?.usage ?? 0;
+  // What Google itself says has gone since sign-in. Lags deletes by minutes.
+  const verified = startUsage !== null ? Math.max(0, startUsage - usage) : 0;
   const usedPct = Math.min(100, (Math.max(0, usage - pendingBytes) / limit) * 100);
   const pendingPct = Math.min(100 - usedPct, (pendingBytes / limit) * 100);
 
@@ -203,8 +232,22 @@ function Gauge({
       <div className="legend">
         <span className="l-used">Used</span>
         <span className="l-pending">In trash</span>
-        {freedBytes > 0 && <span className="l-freed">Freed this session: {gb(freedBytes)} GB</span>}
+        {freedBytes > 0 && (
+          <span className="l-freed">
+            Freed this session: ≈ {gb(freedBytes)} GB estimated
+            {verified > 0 && <>, {gb(verified)} GB confirmed by Google</>}
+          </span>
+        )}
+        <button className="linkish" style={{ marginLeft: "auto" }} onClick={onRefresh} disabled={refreshing}>
+          {refreshing ? "Refreshing…" : "Refresh from Google"}
+        </button>
       </div>
+      {freedBytes > 0 && verified < freedBytes * 0.5 && (
+        <p className="sub" style={{ marginTop: 8, fontSize: 13 }}>
+          Google recalculates storage a few minutes after a permanent delete. Refresh to see the
+          confirmed number catch up.
+        </p>
+      )}
     </section>
   );
 }
@@ -768,13 +811,19 @@ function Senders({
   );
 }
 
+/** Gmail deep link for the signed-in account, not whichever account is first in the browser. */
+const gmailUrl = (email: string, hash: string) =>
+  `https://mail.google.com/mail/?authuser=${encodeURIComponent(email)}#${hash}`;
+
 function EmptyTrash({
+  email,
   trashedThisSession,
   log,
   onRestored,
   onDeleted,
   onEmptied,
 }: {
+  email: string;
   trashedThisSession: number;
   log: TrashEntry[];
   onRestored: (entry: TrashEntry, restored: number) => void;
@@ -841,7 +890,7 @@ function EmptyTrash({
       </p>
 
       <p className="lede" style={{ marginTop: -8 }}>
-        <a href="https://mail.google.com/mail/u/0/#trash" target="_blank" rel="noreferrer">
+        <a href={gmailUrl(email, "trash")} target="_blank" rel="noreferrer">
           Review your Trash in Gmail
         </a>{" "}
         before you delete anything for good.
@@ -856,9 +905,10 @@ function EmptyTrash({
                 <div className="hint">
                   {e.query && <code>{e.query}</code>}{" "}
                   <a
-                    href={`https://mail.google.com/mail/u/0/#search/${encodeURIComponent(
-                      `in:trash ${e.query || e.label.replace(/^From /, "from:")}`
-                    )}`}
+                    href={gmailUrl(
+                      email,
+                      `search/${encodeURIComponent(`in:trash ${e.query || e.label.replace(/^From /, "from:")}`)}`
+                    )}
                     target="_blank"
                     rel="noreferrer"
                   >
