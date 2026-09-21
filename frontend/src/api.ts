@@ -121,4 +121,8 @@ export const api = {
     }),
 };
 
-export const gb = (bytes?: number) => (bytes ? (bytes / 1e9).toFixed(1) : "0.0");
+// Gmail's storage page divides by 2^30 and still says "GB". Match it, so a
+// number here is the number the user sees in Google.
+export const GB = 1024 ** 3;
+export const gb = (bytes?: number, digits = 1) => (bytes ? (bytes / GB).toFixed(digits) : (0).toFixed(digits));
+export const mb = (bytes?: number) => (bytes ? (bytes / 1024 ** 2).toFixed(1) : "0.0");

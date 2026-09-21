@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
-import { api, gb, BatchProgress, Count, Preset, Preview, Sender, Storage, Suggestion, TrashProgress } from "./api";
+import { api, gb, mb, BatchProgress, Count, Preset, Preview, Sender, Storage, Suggestion, TrashProgress } from "./api";
 
 type Progress = { label: string; current: number; total?: number };
 type Status = {
@@ -216,8 +216,8 @@ function Gauge({
   return (
     <section className="gauge" aria-label="Storage">
       <p className="headline">
-        {gb(usage)}
-        <small>of {gb(limit)} GB used</small>
+        {gb(usage, 2)}
+        <small>of {gb(limit, 0)} GB used</small>
       </p>
       <p className="sub">
         {storage?.messagesTotal ? `${storage.messagesTotal.toLocaleString()} messages. ` : ""}
@@ -233,10 +233,20 @@ function Gauge({
         <span className="l-used">Used</span>
         <span className="l-pending">In trash</span>
         {freedBytes > 0 && (
-          <span className="l-freed">
-            Freed this session: ≈ {gb(freedBytes)} GB estimated
-            {verified > 0 && <>, {gb(verified)} GB confirmed by Google</>}
-          </span>
+          <>
+            <span
+              className="l-freed"
+              title="Sweep's estimate: message count × the average size of a 100-message sample. The ≈ marks every number Sweep computed rather than read from Google."
+            >
+              ≈ {gb(freedBytes)} GB freed (estimated)
+            </span>
+            <span
+              className="l-confirmed"
+              title="How much Google's own storage figure has dropped since you signed in. Google recalculates minutes to hours after a permanent delete."
+            >
+              {gb(verified)} GB confirmed by Google
+            </span>
+          </>
         )}
         <button className="linkish" style={{ marginLeft: "auto" }} onClick={onRefresh} disabled={refreshing}>
           {refreshing ? "Refreshing…" : "Refresh from Google"}
@@ -244,8 +254,8 @@ function Gauge({
       </div>
       {freedBytes > 0 && verified < freedBytes * 0.5 && (
         <p className="sub" style={{ marginTop: 8, fontSize: 13 }}>
-          Google recalculates storage a few minutes after a permanent delete. Refresh to see the
-          confirmed number catch up.
+          Google updates its storage figure minutes to hours after a permanent delete. The
+          confirmed number will catch up on its own; refreshing does not hurry it.
         </p>
       )}
     </section>
@@ -779,7 +789,7 @@ function Senders({
                     <div className="addr">{s.address}</div>
                   </td>
                   <td className="num">{s.count}</td>
-                  <td className="num">{(s.estimated_bytes / 1e6).toFixed(1)} MB</td>
+                  <td className="num">{mb(s.estimated_bytes)} MB</td>
                   <td>
                     {sug && (
                       <>
@@ -854,7 +864,8 @@ function EmptyTrash({
   };
 
   const deleteEntry = async (e: TrashEntry) => {
-    if (!confirm(`Permanently delete ${e.count.toLocaleString()} messages from "${e.label}"? This cannot be undone.`))
+    const size = e.bytes > 0 ? `, about ${gb(e.bytes)} GB (estimated from a sample)` : "";
+    if (!confirm(`Permanently delete ${e.count.toLocaleString()} messages from "${e.label}"${size}? This cannot be undone.`))
       return;
     setW(e.id, { kind: "working", progress: { label: "Deleting forever…", current: 0, total: e.count } });
     try {
