@@ -4,6 +4,7 @@ Uses raw REST via httpx rather than google-api-python-client so the
 request surface stays small and readable.
 """
 import asyncio
+import logging
 from collections import Counter
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -14,6 +15,8 @@ from fastapi import HTTPException
 
 from .config import settings
 from .session import Session
+
+log = logging.getLogger("sweep")
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me"
@@ -207,17 +210,28 @@ class Gmail:
 
         sizes, dates, senders, subjects = [], [], Counter(), []
         names: dict[str, str] = {}
+        skipped = 0
         for m in msgs:
-            sizes.append(int(m.get("sizeEstimate", 0)))
-            if m.get("internalDate"):
-                dates.append(int(m["internalDate"]) // 1000)
-            h = {x["name"].lower(): x["value"] for x in m.get("payload", {}).get("headers", [])}
-            addr, name = parse_from(h.get("from", ""))
+            try:
+                size = int(m.get("sizeEstimate") or 0)
+                ts = int(m.get("internalDate") or 0) // 1000
+                h = {x["name"].lower(): x["value"] for x in m.get("payload", {}).get("headers", [])}
+            except (TypeError, ValueError, KeyError):
+                skipped += 1  # one odd message must not sink the whole sample
+                continue
+            sizes.append(size)
+            if 0 < ts < 4_102_444_800:  # sane: after 1970, before 2100
+                dates.append(ts)
+            addr, name = parse_from(str(h.get("from", "")))
             if addr:
                 senders[addr] += 1
                 names.setdefault(addr, name)
             if len(subjects) < 6 and h.get("subject"):
-                subjects.append(h["subject"][:100])
+                subjects.append(str(h["subject"])[:100])
+        if skipped:
+            log.warning("sample: skipped %d message(s) with unparseable metadata", skipped)
+        if not sizes:
+            return dict(_EMPTY_SUMMARY)
 
         def iso(ts: int) -> str:
             return datetime.fromtimestamp(ts, UTC).date().isoformat()

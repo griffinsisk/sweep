@@ -208,3 +208,24 @@ async def test_trash_stream_reports_both_phases_then_ids():
     assert lines[2] == {"phase": "trashing", "trashed": 1200, "total": 1200, "done": False}
     assert lines[3]["trashed"] == 1200 and len(lines[3]["ids"]) == 1200
     assert sorted(batches) == [200, 1000]
+
+
+async def test_sample_survives_a_message_with_bad_metadata():
+    bodies = iter(
+        [
+            {"sizeEstimate": "not-a-number", "internalDate": "x", "payload": {"headers": []}},
+            {"sizeEstimate": SIZE, "internalDate": "99999999999999999", "payload": {"headers": []}},
+            {"sizeEstimate": SIZE, "internalDate": "1600000000000", "payload": {"headers": [
+                {"name": "From", "value": "a@b.c"}, {"name": "Subject", "value": "hi"}]}},
+        ]
+    )
+
+    async def fake_request(method, url, **kw):
+        return httpx.Response(200, json=next(bodies))
+
+    g = Gmail(Session(access_token="t", refresh_token=None, email="x@y"))
+    g._request = fake_request  # type: ignore[method-assign]
+    out = await g.sample_summary(["1", "2", "3"], concurrency=1)
+    assert out["avg_bytes"] == SIZE
+    assert out["preview"]["sampled"] == 3  # 3 fetched; 1 skipped in parsing
+    assert out["preview"]["oldest"] == out["preview"]["newest"] == "2020-09-13"  # absurd date ignored
