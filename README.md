@@ -1,28 +1,31 @@
 # Sweep
 
-Clear out years of Gmail in minutes, not hours.
+Have you been a long-time Google user and one day logged into Gmail only to find this dreaded message?
 
-Gmail's web UI caps bulk actions at 50 conversations per click. Sweep uses the Gmail API's `batchModify` endpoint (1,000 messages per request) to trash tens of thousands of messages in a few dozen calls, groups the rest by sender so you can see who's actually filling your inbox, and optionally asks Claude to suggest what to keep, unsubscribe from, or trash.
+> ⚠️ **You're out of storage.** You can't send or receive emails until you free up space.
 
-It runs on your own machine. One command starts a local server and opens your browser. Nothing is stored anywhere: your Gmail token lives in an encrypted, httpOnly cookie and is gone when you sign out.
+Fourteen years of newsletters. Every "your order has shipped." A 2011 video attachment of a dog. And Gmail's answer is a checkbox that selects 50 messages at a time.
 
-## What it does
+If that's you, today you're in luck.
 
-- **Presets** — one click for the big wins: everything before 2020, attachments over 10 MB, promotions, social, updates, mailing lists, and no-reply senders older than a year. Each is a plain Gmail search you can paste into Gmail to check first
-- **Build your own** — pick an age (3 months to 5 years, or before a date), a kind of mail, and a size; Sweep writes the Gmail search and lets you edit it. Any preset can be loaded into the builder with one click
-- **Count before you act** — an exact count streams in as it runs, with an estimated size and a preview of who sent the mail, the date range, and a few subjects, all from a 100-message sample. Counts cap at 50,000+ so nothing spins forever
-- **Trash with a progress bar** — two phases, finding and moving, with a running count. Batches of 1,000, three in flight
-- **Undo and per-action delete** — every trash action lands in a log with its count, size, an Undo button, a Delete forever button, and a Review in Gmail link scoped to exactly what it moved
-- **Senders** — a sample of your older mail grouped by sender, with a real unsubscribe link pulled from each message's `List-Unsubscribe` header
-- **Suggestions** — Claude reads the sender list (domain, count, a few subject lines) and labels each keep / unsubscribe / trash with a one-line reason. You confirm; it never acts alone. Off unless you set an Anthropic key
-- **Empty trash** — because moving to trash doesn't free storage. Typed confirmation required
-- **Storage gauge** — Google's quota in the same units Gmail shows, an estimated figure for what you freed, and what Google has confirmed since you signed in. Returning users see a per-day history kept in the browser
+<!-- TODO: screenshot or GIF here. The gauge before and after, or Count → Trash all → progress bar. -->
 
-Every number Sweep computed carries a ≈. Numbers without one come from Google.
+## What Sweep does
 
-## Quick start
+Sweep clears out years of Gmail in minutes. It runs on your own computer, talks straight to Gmail, and moves mail in batches of 1,000 instead of 50.
 
-You need a Google Cloud project of your own (about 10 minutes, one time) because Google restricts the Gmail scope Sweep uses. [SETUP.md](SETUP.md) walks through it. Then:
+- **Count before you act.** Pick "Promotions older than a year." Sweep tells you how many, roughly how many GB, and who sent them, before you touch anything.
+- **Then trash it.** Tens of thousands of messages, one button, a progress bar.
+- **Changed your mind?** Undo. Every action is reversible right up until you empty the trash.
+- **Build your own.** Older than 3 years, has an attachment, over 10 MB. No Gmail search syntax required, though you can type it if you know it.
+
+Nothing is stored anywhere. Your Gmail token lives in your browser and dies when you sign out.
+
+## Get started
+
+You'll need a Google Cloud project of your own. That sounds worse than it is: about ten minutes, once, and [SETUP.md](SETUP.md) walks you through every click. Google requires it because Sweep asks for the permission that can permanently delete mail, and Google does not hand that out to apps it hasn't audited.
+
+Then:
 
 ```bash
 uv tool install https://github.com/griffinsisk/sweep/releases/latest/download/sweep_gmail-0.2.0-py3-none-any.whl
@@ -30,55 +33,31 @@ export GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...
 sweep
 ```
 
-## Architecture
+Your browser opens. Sign in. Start counting.
 
-One Python process. FastAPI serves the API and the compiled React frontend from the same port on `127.0.0.1`.
+## The part where you get your storage back
 
-```
-backend/    FastAPI + the `sweep` command       python package, ships the built UI
-frontend/   Vite + React + TypeScript            builds into backend/sweep/static/
-```
+Moving mail to Trash frees nothing. Gmail keeps it for 30 days in case you regret it. The **Empty trash** button at the bottom is the one that gives you the gigabytes, and it is the one you can't undo, so Sweep makes you type it out.
 
-Flow:
+After that, watch the gauge. Google takes a few minutes to admit the space is free.
 
-1. `sweep` starts uvicorn on 127.0.0.1 and opens the browser
-2. Sign in redirects to Google's consent screen and back to `/auth/callback`
-3. Tokens are encrypted with a key generated at startup into an httpOnly cookie. No database, no files
-4. The UI calls `/api/*`; the server decrypts the cookie, calls Gmail REST, refreshes the token on 401
-5. `/api/ai/suggest` sends **only** sender domain, count, and up to 3 subject lines to Claude. Never bodies, never recipients. Off unless you set an Anthropic key
+## Optional: ask Claude
 
-### Why self-hosted?
+Set `ANTHROPIC_API_KEY` and a button appears on the senders list. Claude looks at who's been filling your inbox and says keep, unsubscribe, or trash, with a reason. It sees sender domains, counts, and a few subject lines. Never a message body. You still press the button.
 
-The full Gmail scope is a restricted scope. A hosted copy would serve at most 100 named test users until it passed Google's verification, which for an app whose server touches Gmail data means an annual CASA security assessment. Running locally means anyone can use it today, the tokens never leave their machine, and the verification question goes away.
+## Should you use this?
 
-## Scopes requested
+**Yes, if** you have a personal Gmail that has quietly filled up over a decade and you'd rather spend ten minutes than a weekend.
 
-| Scope | Why |
-|---|---|
-| `https://mail.google.com/` | list, trash, and permanently delete messages. Permanent deletion is the reason for the full scope; `gmail.modify` cannot do it |
-| `drive.metadata.readonly` | read storage quota for the gauge (optional — drop it and the gauge falls back to message counts) |
-| `openid email` | show which account is signed in |
+**Probably not, if** you need to keep everything for legal or tax reasons, or you're on a Google Workspace account your admin controls. Sweep is a broom, not an archivist.
 
-## Developing
+## Privacy, in one breath
 
-See the Developing section of [SETUP.md](SETUP.md).
+Reads metadata, never bodies. Moves or deletes only what you click. Sends no email. Details in [PRIVACY.md](PRIVACY.md). Revoke access anytime at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
 
-## Privacy
+## What's next
 
-Sweep reads message metadata (sender, subject, date, size, labels), moves or deletes the messages you choose, and reads your storage quota. It never reads message bodies, never sends mail, and never acts without a click. Claude, when enabled, sees sender domains, counts, and a few subject lines. Details in [PRIVACY.md](PRIVACY.md). Revoke access any time at https://myaccount.google.com/permissions.
-
-## Status
-
-**v0.2.0.** Runs end to end on a real mailbox: sign-in, counts, trash, undo, permanent delete, with Google confirming several GB freed. The Claude suggestions path is built but has had less real-world use than the rest.
-
-**Next up**
-
-- **Unsubscribe, not just trash.** Senders that support one-click unsubscribe (RFC 8058) or a mailto address get a button; a bulk action leaves dozens of lists at once. Stops the mailbox refilling
-- **Honest sender counts.** The senders table shows sample counts today; real per-sender totals on demand
-- **"Anything I should keep?"** Claude checks a query's preview sample for the bank, the school, the doctor hiding inside a promotions search, before you trash it
-- **MCP server.** The same count, trash, senders, and undo primitives as tools, so Claude Desktop can drive a cleanup through the same confirmation gates
-
-Issues and ideas welcome.
+Unsubscribe buttons for senders who support one-click, honest per-sender totals, a Claude check for "is there anything in here I should keep?", and an MCP server so Claude Desktop can run a cleanup for you. Issues and ideas welcome.
 
 ## License
 
