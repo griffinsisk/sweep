@@ -152,22 +152,27 @@ class Gmail:
         avg = await self.average_size(_spread(ids, sample)) if ids else 0
         yield {"count": len(ids), "capped": capped, "done": True, "avg_bytes": avg}
 
-    async def average_size(self, ids: list[str], concurrency: int = 20) -> int:
-        """Mean sizeEstimate across the given ids, via format=minimal gets."""
+    async def average_size(self, ids: list[str], concurrency: int = 8) -> int:
+        """Mean sizeEstimate across the given ids, via format=minimal gets.
+        Each get costs 5 quota units against a 250/sec per-user limit, so
+        this stays under ~10 in flight and skips any id that errors."""
         if not ids:
             return 0
         sem = asyncio.Semaphore(concurrency)
 
-        async def one(i: str) -> int:
+        async def one(i: str) -> int | None:
             async with sem:
-                r = await self._request(
-                    "GET", f"{GMAIL}/messages/{i}",
-                    params={"format": "minimal", "fields": "sizeEstimate"},
-                )
+                try:
+                    r = await self._request(
+                        "GET", f"{GMAIL}/messages/{i}",
+                        params={"format": "minimal", "fields": "sizeEstimate"},
+                    )
+                except HTTPException:
+                    return None  # rate-limited or gone; the sample survives without it
                 return int(r.json().get("sizeEstimate", 0))
 
-        sizes = await asyncio.gather(*(one(i) for i in ids))
-        return sum(sizes) // len(sizes)
+        sizes = [x for x in await asyncio.gather(*(one(i) for i in ids)) if x is not None]
+        return sum(sizes) // len(sizes) if sizes else 0
 
     async def message_metadata(self, msg_id: str, headers: list[str]) -> dict[str, Any]:
         params = [("format", "metadata")] + [("metadataHeaders", h) for h in headers]

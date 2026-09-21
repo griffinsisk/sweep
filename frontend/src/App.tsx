@@ -138,10 +138,18 @@ function Presets({ onTrashed }: { onTrashed: (n: number, bytes: number) => void 
   const count = async (p: Preset) => {
     set(p.key, { kind: "counting" });
     try {
+      let last: Count | undefined;
       for await (const line of api.presetCount(p.key)) {
         if (line.error) throw new Error(line.error);
         if (typeof line.count !== "number") throw new Error("Unexpected response. Restart sweep.");
+        last = line;
         setCounts((c) => ({ ...c, [p.key]: line }));
+      }
+      if (last && !last.done) {
+        // Stream ended without a final line: keep the count, skip the size estimate.
+        setCounts((c) => ({ ...c, [p.key]: { ...last!, done: true } }));
+        set(p.key, { kind: "err", text: "Count finished early; size estimate unavailable." });
+        return;
       }
       set(p.key, { kind: "idle" });
     } catch (e) {

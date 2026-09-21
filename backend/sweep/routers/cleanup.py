@@ -1,4 +1,5 @@
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -8,6 +9,8 @@ from ..deps import gmail_client
 from ..google import Gmail
 from ..presets import PRESET_INDEX, PRESETS
 from ..session import read_session
+
+log = logging.getLogger("sweep")
 
 router = APIRouter(prefix="/api", tags=["cleanup"])
 
@@ -35,7 +38,11 @@ def _count_stream(request: Request, query: str) -> StreamingResponse:
             async for line in gmail.count_stream(query):
                 yield json.dumps(line) + "\n"
         except HTTPException as e:
+            log.error("count failed for %r: %s", query, e.detail)
             yield json.dumps({"error": e.detail, "done": True}) + "\n"
+        except Exception as e:  # anything else must still reach the UI as a line
+            log.exception("count crashed for %r", query)
+            yield json.dumps({"error": f"{type(e).__name__}: {e}", "done": True}) + "\n"
         finally:
             await gmail.close()
 
