@@ -23,9 +23,14 @@ Sweep runs as one local Python process serving its own UI, installed from a whee
 
 ## Still open
 - [ ] Time a first-time user through SETUP.md — the Google Cloud walk-through is under 10 minutes or gets screenshots
-- [ ] Senders view: real per-sender totals and a configurable sample — the table's counts mean what they look like they mean
 - [ ] Claude "anything I should keep?" on the preview sample — flags exceptions in a query before trashing, off without a key
 - [ ] MCP server exposing count, trash, senders, and empty trash — Claude Desktop can drive a cleanup with the same confirmation gates
+
+### Stop the inflow — the senders view can unsubscribe, not just trash, so the mailbox stops refilling
+- [ ] Real per-sender totals and a configurable sample — the table's counts mean what they look like they mean
+- [ ] Classify each sender as one-click, mailto, or manual from its List-Unsubscribe headers — Sweep knows which it can do for you
+- [ ] Per-row and bulk Unsubscribe for one-click and mailto senders, reported as "requested" — one button leaves dozens of lists
+- [ ] Mailto path is a separate opt-in and named in PRIVACY.md — the first time Sweep sends mail, the user chose it
 
 ## Pick up here
 Start the MCP server over the existing count/trash/senders/untrash primitives, with the same confirmation gates.

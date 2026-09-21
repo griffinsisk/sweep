@@ -18,9 +18,17 @@
 - [x] README and architecture write-up
 - [ ] 2-minute demo video
 
-## v1.1 — polish the loop
+## v1.1 — stop the inflow, not just the storage
+
+The senders view can only trash today. That addresses storage; unsubscribing addresses why the mailbox refills.
 
 - [ ] Senders view: real per-sender totals and a configurable age and sample size — the counts mean what they look like they mean
+- [ ] Classify each sender's unsubscribe path from its headers: **one-click** (RFC 8058 `List-Unsubscribe-Post: List-Unsubscribe=One-Click` + https URL, a bare POST does it; Gmail requires this of bulk senders since 2024), **mailto** (`List-Unsubscribe: <mailto:…>`, one empty email does it), or **manual** (https link only, open it yourself)
+- [ ] Per-row Unsubscribe button for one-click and mailto senders; the link stays for manual ones
+- [ ] Bulk: "Unsubscribe from all N one-click senders" with a checklist to deselect, progress like trash, and Trash all offered as the follow-up on each row
+- [ ] Claude's keep / unsubscribe / trash suggestions become actionable: tick the ones it labelled unsubscribe, press one button
+- [ ] Report "requested" not "unsubscribed": a 200 means the server accepted the request, not that mail stops. Record the date in the ledger so a later scan can show whether the sender went quiet
+- [ ] The mailto path sends email from the user's account for the first time. Separate opt-in in the UI; call it out in PRIVACY.md
 - [ ] Claude "anything I should keep?" on a query's preview sample — flags the bank, the school, the doctor hiding inside a promotions query before you trash it
 - [ ] First-time-user timing of SETUP.md with screenshots where people stall
 

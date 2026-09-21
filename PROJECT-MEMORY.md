@@ -12,6 +12,8 @@
 - **Sep 21 · A ledger session is one calendar day per account.** Page loads and restarts are not sessions.
 - **Sep 21 · Every Sweep-computed number carries ≈; numbers from Google do not.**
 
+- **Sep 21 · Unsubscribe is programmatic only where the sender promised it.** RFC 8058 one-click POST and mailto are automated; a bare https link stays a link. Success is reported as "requested", never "unsubscribed".
+
 ## Lessons
 - **Guessing from symptoms cost two wrong fixes on the 204 bug.** Log the failing response (status, headers, body head) before theorizing; `Gmail.describe_last` now does this on JSON failures.
 - **The `sweep` folder was never its own repo.** Git root resolved to the home directory. Baseline commit e651206 captured the old split layout before restructuring.
