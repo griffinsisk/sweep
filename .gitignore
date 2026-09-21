@@ -21,3 +21,8 @@ dist/
 .DS_Store
 frontend/tsconfig.tsbuildinfo
 build/
+
+# internal planning and status pages (read from disk by local tooling, not for the public repo)
+PLAN.md
+PROJECT-STATE.md
+PROJECT-MEMORY.md

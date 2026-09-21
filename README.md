@@ -49,7 +49,7 @@ Flow:
 
 ### Why self-hosted?
 
-The full Gmail scope is a restricted scope. A hosted copy would serve at most 100 named test users until it passed Google's verification, which for an app whose server touches Gmail data means an annual CASA security assessment. Running locally means anyone can use it today, the tokens never leave their machine, and the verification question goes away. See [PLAN.md](PLAN.md).
+The full Gmail scope is a restricted scope. A hosted copy would serve at most 100 named test users until it passed Google's verification, which for an app whose server touches Gmail data means an annual CASA security assessment. Running locally means anyone can use it today, the tokens never leave their machine, and the verification question goes away.
 
 ## Scopes requested
 
@@ -63,9 +63,22 @@ The full Gmail scope is a restricted scope. A hosted copy would serve at most 10
 
 See the Developing section of [SETUP.md](SETUP.md).
 
+## Privacy
+
+Sweep reads message metadata (sender, subject, date, size, labels), moves or deletes the messages you choose, and reads your storage quota. It never reads message bodies, never sends mail, and never acts without a click. Claude, when enabled, sees sender domains, counts, and a few subject lines. Details in [PRIVACY.md](PRIVACY.md). Revoke access any time at https://myaccount.google.com/permissions.
+
 ## Status
 
-**v0.2.0.** Runs end to end on a real mailbox: sign-in, counts, trash, undo, permanent delete, with Google confirming several GB freed. See [PLAN.md](PLAN.md) for what is next, including an MCP server so Claude Desktop can drive a cleanup through the same confirmation gates.
+**v0.2.0.** Runs end to end on a real mailbox: sign-in, counts, trash, undo, permanent delete, with Google confirming several GB freed. The Claude suggestions path is built but has had less real-world use than the rest.
+
+**Next up**
+
+- **Unsubscribe, not just trash.** Senders that support one-click unsubscribe (RFC 8058) or a mailto address get a button; a bulk action leaves dozens of lists at once. Stops the mailbox refilling
+- **Honest sender counts.** The senders table shows sample counts today; real per-sender totals on demand
+- **"Anything I should keep?"** Claude checks a query's preview sample for the bank, the school, the doctor hiding inside a promotions search, before you trash it
+- **MCP server.** The same count, trash, senders, and undo primitives as tools, so Claude Desktop can drive a cleanup through the same confirmation gates
+
+Issues and ideas welcome.
 
 ## License
 
