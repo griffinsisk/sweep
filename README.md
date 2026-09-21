@@ -6,7 +6,7 @@ Have you been a long-time Google user and one day logged into Gmail only to find
 
 Fourteen years of newsletters. Every "your order has shipped." A 2017 video attachment of your Mom's new puppy because she hasn't quite figured out how to use a cell phone just yet...
 
-From my experience deleting clearing up space in Gmail can be a painful process. If you agree, today you're in luck.
+Welp, from my experience clearing up space in Gmail can be a tedious process. If you agree, today you're in luck.
 
 <!-- TODO: the "after" — Sweep's gauge once the space is back, or a short GIF of Count → Trash all. -->
 
