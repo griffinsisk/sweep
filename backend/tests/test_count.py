@@ -229,3 +229,16 @@ async def test_sample_survives_a_message_with_bad_metadata():
     assert out["avg_bytes"] == SIZE
     assert out["preview"]["sampled"] == 3  # 3 fetched; 1 skipped in parsing
     assert out["preview"]["oldest"] == out["preview"]["newest"] == "2020-09-13"  # absurd date ignored
+
+
+async def test_204_from_list_means_zero_matches():
+    async def fake_request(method, url, **kw):
+        return httpx.Response(204)  # Gmail: fields mask selected nothing
+
+    g = Gmail(Session(access_token="t", refresh_token=None, email="x@y"))
+    g._request = fake_request  # type: ignore[method-assign]
+    lines = [x async for x in g.count_stream("category:promotions older_than:1y")]
+    assert lines == [{"count": 0, "capped": False, "done": True, "avg_bytes": 0, "preview": None}]
+    trash = [x async for x in g.trash_stream("category:promotions older_than:1y")]
+    assert trash[-1]["trashed"] == 0 and trash[-1]["ids"] == []
+    assert await g.list_message_ids("q") == []

@@ -112,7 +112,28 @@ class Gmail:
             raise HTTPException(403, NEEDS_RECONSENT)
         if r.status_code >= 400:
             raise HTTPException(r.status_code, f"Google API error: {r.text[:300]}")
+        self.last = r  # kept so a decode failure can be reported with its context
         return r
+
+    async def _json(self, method: str, url: str, **kw) -> dict[str, Any]:
+        """_request + decode. Gmail answers 204 No Content, not {}, when a
+        fields mask selects nothing, i.e. a search with zero matches."""
+        r = await self._request(method, url, **kw)
+        if r.status_code == 204 or not r.content.strip():
+            return {}
+        return r.json()
+
+    def describe_last(self) -> str:
+        """Status, headers, and body head of the most recent response, for logs."""
+        r = getattr(self, "last", None)
+        if r is None:
+            return "no response recorded"
+        keep = ("content-type", "content-length", "content-encoding", "transfer-encoding", "server")
+        hdrs = {k: v for k, v in r.headers.items() if k.lower() in keep}
+        return (
+            f"{r.request.method} {r.request.url.path}?{r.request.url.query.decode()[:200]} -> "
+            f"{r.status_code} {hdrs} body[:200]={r.content[:200]!r}"
+        )
 
     # ---- reads -------------------------------------------------------------
 
@@ -135,7 +156,7 @@ class Gmail:
             params: dict[str, Any] = {"q": query, "maxResults": 500}
             if token:
                 params["pageToken"] = token
-            data = (await self._request("GET", f"{GMAIL}/messages", params=params)).json()
+            data = await self._json("GET", f"{GMAIL}/messages", params=params)
             ids.extend(m["id"] for m in data.get("messages", []))
             token = data.get("nextPageToken")
             if not token or (limit and len(ids) >= limit):
@@ -166,7 +187,7 @@ class Gmail:
             }
             if token:
                 params["pageToken"] = token
-            data = (await self._request("GET", f"{GMAIL}/messages", params=params)).json()
+            data = await self._json("GET", f"{GMAIL}/messages", params=params)
             ids.extend(m["id"] for m in data.get("messages", []))
             token = data.get("nextPageToken")
             if not token:
@@ -298,7 +319,7 @@ class Gmail:
             params: dict[str, Any] = {"q": query, "maxResults": 500, "fields": "nextPageToken,messages/id"}
             if token:
                 params["pageToken"] = token
-            data = (await self._request("GET", f"{GMAIL}/messages", params=params)).json()
+            data = await self._json("GET", f"{GMAIL}/messages", params=params)
             ids.extend(m["id"] for m in data.get("messages", []))
             token = data.get("nextPageToken")
             yield {"phase": "listing", "found": len(ids), "done": False}
@@ -341,7 +362,8 @@ class Gmail:
 
 def _throttled_200(r: httpx.Response) -> bool:
     """Under load Gmail sometimes answers 200 with no body at all. Every call
-    we make expects JSON, so an empty 200 is a throttle, not a success."""
+    we make expects JSON, so an empty 200 is a throttle, not a success.
+    (204 is different: it is Gmail's legitimate 'nothing matched'.)"""
     return r.status_code == 200 and not r.content.strip()
 
 
