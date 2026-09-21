@@ -43,13 +43,13 @@ Flow:
 
 ### Why self-hosted?
 
-`gmail.modify` is a restricted scope. A hosted copy would serve at most 100 named test users until it passed Google's verification, which for an app whose server touches Gmail data means an annual CASA security assessment. Running locally means anyone can use it today, the tokens never leave their machine, and the verification question goes away. See [PLAN.md](PLAN.md).
+The full Gmail scope is a restricted scope. A hosted copy would serve at most 100 named test users until it passed Google's verification, which for an app whose server touches Gmail data means an annual CASA security assessment. Running locally means anyone can use it today, the tokens never leave their machine, and the verification question goes away. See [PLAN.md](PLAN.md).
 
 ## Scopes requested
 
 | Scope | Why |
 |---|---|
-| `gmail.modify` | list, trash, and permanently delete messages |
+| `https://mail.google.com/` | list, trash, and permanently delete messages. Permanent deletion is the reason for the full scope; `gmail.modify` cannot do it |
 | `drive.metadata.readonly` | read storage quota for the gauge (optional — drop it and the gauge falls back to message counts) |
 | `openid email` | show which account is signed in |
 

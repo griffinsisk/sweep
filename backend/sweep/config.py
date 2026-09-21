@@ -32,7 +32,9 @@ class Settings(BaseSettings):
     scopes: list[str] = [
         "openid",
         "https://www.googleapis.com/auth/userinfo.email",
-        "https://www.googleapis.com/auth/gmail.modify",
+        # Full mail scope, not gmail.modify: batchDelete (Empty trash, Delete
+        # forever) is the one operation Google reserves for it.
+        "https://mail.google.com/",
         "https://www.googleapis.com/auth/drive.metadata.readonly",
     ]
 

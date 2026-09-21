@@ -25,6 +25,10 @@ COUNT_MAX_PAGES = 100  # 100 pages x 500 ids = 50,000; past that the UI shows "5
 SIZE_SAMPLE = 100  # messages whose size we fetch to estimate the storage a query holds
 RETRIES = 4
 TOO_FAST = "Too much commotion, too fast. Wait a few seconds and try again."
+NEEDS_RECONSENT = (
+    "Sweep needs a permission this sign-in did not grant. Sign out, sign back in, and allow "
+    "everything on Google's consent screen."
+)
 RETRY_STATUSES = {429, 500, 502, 503, 504}
 
 
@@ -99,6 +103,8 @@ class Gmail:
             r = await self._client.request(method, url, headers=self._headers, **kw)
         if r.status_code == 429 or (r.status_code == 403 and "rateLimit" in r.text):
             raise HTTPException(429, TOO_FAST)
+        if r.status_code == 403 and "insufficientPermissions" in r.text:
+            raise HTTPException(403, NEEDS_RECONSENT)
         if r.status_code >= 400:
             raise HTTPException(r.status_code, f"Google API error: {r.text[:300]}")
         return r

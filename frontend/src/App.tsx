@@ -840,17 +840,31 @@ function EmptyTrash({
           ` You've moved ${trashedThisSession.toLocaleString()} messages to Trash this session.`}
       </p>
 
+      <p className="lede" style={{ marginTop: -8 }}>
+        <a href="https://mail.google.com/mail/u/0/#trash" target="_blank" rel="noreferrer">
+          Review your Trash in Gmail
+        </a>{" "}
+        before you delete anything for good.
+      </p>
+
       {log.length > 0 && (
         <div className="rows" style={{ marginBottom: 16 }}>
           {log.map((e) => (
             <div className="row" key={e.id}>
               <div>
                 <div className="label">{e.label}</div>
-                {e.query && (
-                  <div className="hint">
-                    <code>{e.query}</code>
-                  </div>
-                )}
+                <div className="hint">
+                  {e.query && <code>{e.query}</code>}{" "}
+                  <a
+                    href={`https://mail.google.com/mail/u/0/#search/${encodeURIComponent(
+                      `in:trash ${e.query || e.label.replace(/^From /, "from:")}`
+                    )}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Review in Gmail
+                  </a>
+                </div>
               </div>
               <div className="count">
                 {e.count.toLocaleString()}

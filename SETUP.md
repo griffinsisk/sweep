@@ -4,7 +4,7 @@ Two parts: a one-time Google Cloud setup that only you can do (about 10 minutes)
 
 ## 1. Google Cloud project
 
-Sweep asks for the `gmail.modify` scope, which Google restricts. That means every copy of Sweep needs its own Google Cloud project, with you listed as a test user. Nobody else's project can grant it to you.
+Sweep asks for the full Gmail scope (`https://mail.google.com/`), which Google restricts. That means every copy of Sweep needs its own Google Cloud project, with you listed as a test user. Nobody else's project can grant it to you.
 
 1. Open https://console.cloud.google.com and create a new project. Name it anything, for example `sweep`.
 2. **APIs & Services → Library**. Enable **Gmail API** and **Google Drive API**. (Drive is only used to read your storage quota. Skip it and the gauge falls back to message counts.)
@@ -13,7 +13,7 @@ Sweep asks for the `gmail.modify` scope, which Google restricts. That means ever
    - **Audience**: User type **External**. Leave publishing status as **Testing**. Under **Test users → Add users**, add your Gmail address.
    - **Data Access → Add or remove scopes**. Paste these into the "Manually add scopes" box, then **Update** and **Save**:
      ```
-     https://www.googleapis.com/auth/gmail.modify
+     https://mail.google.com/
      https://www.googleapis.com/auth/drive.metadata.readonly
      https://www.googleapis.com/auth/userinfo.email
      openid
