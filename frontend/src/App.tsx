@@ -43,13 +43,16 @@ function SignIn() {
   );
 }
 
+type TrashEntry = { id: number; label: string; query: string; count: number; bytes: number; ids: string[] };
+type Trashed = { trashed: number; bytes: number; ids: string[]; label: string; query: string };
+
 function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) {
   const [storage, setStorage] = useState<Storage | null>(null);
   const [trashedThisSession, setTrashedThisSession] = useState(0);
   const [freedBytes, setFreedBytes] = useState(0);
   const [pendingBytes, setPendingBytes] = useState(0);
+  const [log, setLog] = useState<TrashEntry[]>([]);
   const [seed, setSeed] = useState<{ query: string; n: number }>({ query: "", n: 0 });
-  const [epoch, setEpoch] = useState(0); // bumps when trash is emptied: undo is gone
   const builderRef = useRef<HTMLElement>(null);
   const customize = (query: string) => {
     setSeed((s) => ({ query, n: s.n + 1 }));
@@ -61,14 +64,23 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
     refreshStorage();
   }, []);
 
-  const onTrashed = (count: number, estBytes = 0) => {
-    setTrashedThisSession((n) => n + count);
-    setPendingBytes((b) => b + estBytes);
+  const onTrashed = (t: Trashed) => {
+    setTrashedThisSession((n) => n + t.trashed);
+    setPendingBytes((b) => b + t.bytes);
+    setLog((l) => [
+      ...l,
+      { id: Date.now(), label: t.label, query: t.query, count: t.trashed, bytes: t.bytes, ids: t.ids },
+    ]);
+  };
+  const onRestored = (entry: TrashEntry, restored: number) => {
+    setTrashedThisSession((n) => n - restored);
+    setPendingBytes((b) => Math.max(0, b - entry.bytes));
+    setLog((l) => l.filter((e) => e.id !== entry.id));
   };
   const onEmptied = () => {
     setFreedBytes((f) => f + pendingBytes);
     setPendingBytes(0);
-    setEpoch((e) => e + 1);
+    setLog([]);
     refreshStorage();
   };
 
@@ -86,10 +98,18 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
 
       <Gauge storage={storage} pendingBytes={pendingBytes} freedBytes={freedBytes} />
 
-      <Presets onTrashed={onTrashed} onCustomize={customize} epoch={epoch} />
-      <QueryBuilder ref={builderRef} seed={seed} onTrashed={onTrashed} epoch={epoch} />
-      <Senders onTrashed={onTrashed} aiEnabled={aiEnabled} />
-      <EmptyTrash trashedThisSession={trashedThisSession} onEmptied={onEmptied} />
+      <Presets onTrashed={onTrashed} onCustomize={customize} />
+      <QueryBuilder ref={builderRef} seed={seed} onTrashed={onTrashed} />
+      <Senders
+        aiEnabled={aiEnabled}
+        onTrashed={(n, bytes, sender) => onTrashed({ trashed: n, bytes, ids: [], label: sender, query: "" })}
+      />
+      <EmptyTrash
+        trashedThisSession={trashedThisSession}
+        log={log}
+        onRestored={onRestored}
+        onEmptied={onEmptied}
+      />
     </main>
   );
 }
@@ -134,18 +154,10 @@ function Gauge({
 }
 
 /** Count + trash state for any set of Gmail queries, keyed by string. */
-type Undo = { ids: string[]; bytes: number };
-
-function useQueryActions(onTrashed: (n: number, bytes: number) => void, epoch: number) {
+function useQueryActions(onTrashed: (t: Trashed) => void) {
   const [status, setStatus] = useState<Record<string, Status>>({});
   const [counts, setCounts] = useState<Record<string, Count>>({});
-  const [undos, setUndos] = useState<Record<string, Undo>>({});
   const set = (k: string, s: Status) => setStatus((p) => ({ ...p, [k]: s }));
-
-  // Emptying the trash makes every earlier trash action permanent.
-  useEffect(() => {
-    if (epoch) setUndos({});
-  }, [epoch]);
 
   const count = async (key: string, stream: AsyncGenerator<Count>) => {
     set(key, { kind: "counting" });
@@ -169,57 +181,31 @@ function useQueryActions(onTrashed: (n: number, bytes: number) => void, epoch: n
     }
   };
 
-  const trash = async (key: string, query: string, run: () => Promise<TrashResult>) => {
+  const trash = async (
+    key: string,
+    label: string,
+    query: string,
+    run: () => Promise<TrashResult>,
+    after?: () => void
+  ) => {
     if (!confirm(`Move every message matching "${query}" to Trash?`)) return;
     set(key, { kind: "working", text: "Trashing in batches of 1,000…" });
     try {
       const { trashed, ids } = await run();
       const bytes = trashed * (counts[key]?.avg_bytes ?? 0);
-      onTrashed(trashed, bytes);
-      setUndos((u) => ({ ...u, [key]: { ids, bytes } }));
-      setCounts((c) => ({ ...c, [key]: { count: 0, capped: false, done: true, avg_bytes: 0 } }));
-      set(key, { kind: "ok", text: `Moved ${trashed.toLocaleString()} messages to Trash.` });
-    } catch (e) {
-      set(key, { kind: "err", text: String(e) });
-    }
-  };
-
-  const undo = async (key: string) => {
-    const u = undos[key];
-    if (!u) return;
-    set(key, { kind: "working", text: "Restoring…" });
-    try {
-      const { restored } = await api.untrash(u.ids);
-      onTrashed(-restored, -u.bytes);
-      setUndos(({ [key]: _, ...rest }) => rest);
+      onTrashed({ trashed, bytes, ids, label, query });
+      setCounts(({ [key]: _, ...rest }) => rest);
       set(key, {
         kind: "ok",
-        text: `Restored ${restored.toLocaleString()} messages to All Mail (not back to Inbox).`,
+        text: `Moved ${trashed.toLocaleString()} messages to Trash. Undo is in the Empty trash section below.`,
       });
+      after?.();
     } catch (e) {
       set(key, { kind: "err", text: String(e) });
     }
   };
 
-  return { status, counts, undos, count, trash, undo };
-}
-
-/** Status line for a row, with Undo while the trash action is still reversible. */
-function RowStatus({ s, undo, onUndo }: { s: Status; undo?: Undo; onUndo: () => void }) {
-  if (!s.text && !undo) return null;
-  return (
-    <div className={`status ${s.kind}`}>
-      {s.text}
-      {undo && s.kind !== "working" && (
-        <>
-          {" "}
-          <button className="linkish" onClick={onUndo}>
-            Undo
-          </button>
-        </>
-      )}
-    </div>
-  );
+  return { status, counts, count, trash };
 }
 
 /** What a query holds, from the 100-message sample Count already fetched. */
@@ -273,14 +259,12 @@ function PreviewPanel({ p, total }: { p: Preview; total: number }) {
 function Presets({
   onTrashed,
   onCustomize,
-  epoch,
 }: {
-  onTrashed: (n: number, bytes: number) => void;
+  onTrashed: (t: Trashed) => void;
   onCustomize: (query: string) => void;
-  epoch: number;
 }) {
   const [presets, setPresets] = useState<Preset[]>([]);
-  const { status, counts, undos, count, trash, undo } = useQueryActions(onTrashed, epoch);
+  const { status, counts, count, trash } = useQueryActions(onTrashed);
 
   useEffect(() => {
     api.presets().then(setPresets);
@@ -318,12 +302,12 @@ function Presets({
                 <button
                   className="btn danger"
                   disabled={busy}
-                  onClick={() => trash(p.key, p.query, () => api.presetTrash(p.key))}
+                  onClick={() => trash(p.key, p.label, p.query, () => api.presetTrash(p.key))}
                 >
                   Trash all
                 </button>
               </div>
-              <RowStatus s={s} undo={undos[p.key]} onUndo={() => undo(p.key)} />
+              {s.text && <div className={`status ${s.kind}`}>{s.text}</div>}
               {counts[p.key]?.preview && counts[p.key].count > 0 && (
                 <PreviewPanel p={counts[p.key].preview!} total={counts[p.key].count} />
               )}
@@ -396,11 +380,15 @@ function parseQuery(q: string): Controls {
 
 const QueryBuilder = forwardRef<
   HTMLElement,
-  { seed: { query: string; n: number }; onTrashed: (n: number, bytes: number) => void; epoch: number }
->(function QueryBuilder({ seed, onTrashed, epoch }, ref) {
+  { seed: { query: string; n: number }; onTrashed: (t: Trashed) => void }
+>(function QueryBuilder({ seed, onTrashed }, ref) {
   const [controls, setControls] = useState<Controls>(EMPTY);
   const [query, setQuery] = useState("");
-  const { status, counts, undos, count, trash, undo } = useQueryActions(onTrashed, epoch);
+  const { status, counts, count, trash } = useQueryActions(onTrashed);
+  const reset = () => {
+    setControls(EMPTY);
+    setQuery("");
+  };
 
   // A preset's "Customize" loads its query and lights up matching controls.
   useEffect(() => {
@@ -504,12 +492,12 @@ const QueryBuilder = forwardRef<
             <button
               className="btn danger"
               disabled={busy || !ready}
-              onClick={() => trash(key, query, () => api.queryTrash(query))}
+              onClick={() => trash(key, `Custom: ${query}`, query, () => api.queryTrash(query), reset)}
             >
               Trash all
             </button>
           </div>
-          <RowStatus s={s} undo={undos[key]} onUndo={() => undo(key)} />
+          {s.text && <div className={`status ${s.kind}`}>{s.text}</div>}
           {counts[key]?.preview && counts[key].count > 0 && (
             <PreviewPanel p={counts[key].preview!} total={counts[key].count} />
           )}
@@ -540,7 +528,7 @@ function Senders({
   onTrashed,
   aiEnabled,
 }: {
-  onTrashed: (n: number, bytes: number) => void;
+  onTrashed: (n: number, bytes: number, sender: string) => void;
   aiEnabled: boolean;
 }) {
   const [senders, setSenders] = useState<Sender[] | null>(null);
@@ -576,7 +564,7 @@ function Senders({
     setRowStatus((r) => ({ ...r, [s.address]: "trashing…" }));
     try {
       const { trashed } = await api.queryTrash(`from:${s.address}`);
-      onTrashed(trashed, s.estimated_bytes * (trashed / Math.max(1, s.count)));
+      onTrashed(trashed, s.estimated_bytes * (trashed / Math.max(1, s.count)), `From ${s.address}`);
       setRowStatus((r) => ({ ...r, [s.address]: `trashed ${trashed}` }));
     } catch (e) {
       setRowStatus((r) => ({ ...r, [s.address]: String(e) }));
@@ -668,13 +656,28 @@ function Senders({
 
 function EmptyTrash({
   trashedThisSession,
+  log,
+  onRestored,
   onEmptied,
 }: {
   trashedThisSession: number;
+  log: TrashEntry[];
+  onRestored: (entry: TrashEntry, restored: number) => void;
   onEmptied: () => void;
 }) {
   const [typed, setTyped] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  const [undoing, setUndoing] = useState<Record<number, string>>({});
+
+  const undo = async (e: TrashEntry) => {
+    setUndoing((u) => ({ ...u, [e.id]: "restoring…" }));
+    try {
+      const { restored } = await api.untrash(e.ids);
+      onRestored(e, restored);
+    } catch (err) {
+      setUndoing((u) => ({ ...u, [e.id]: String(err) }));
+    }
+  };
 
   const run = async () => {
     setStatus({ kind: "working", text: "Deleting permanently…" });
@@ -696,9 +699,44 @@ function EmptyTrash({
         {trashedThisSession > 0 &&
           ` You've moved ${trashedThisSession.toLocaleString()} messages to Trash this session.`}
       </p>
+
+      {log.length > 0 && (
+        <div className="rows" style={{ marginBottom: 16 }}>
+          {log.map((e) => (
+            <div className="row" key={e.id}>
+              <div>
+                <div className="label">{e.label}</div>
+                {e.query && (
+                  <div className="hint">
+                    <code>{e.query}</code>
+                  </div>
+                )}
+              </div>
+              <div className="count">
+                {e.count.toLocaleString()}
+                {e.bytes > 0 && <div className="size">≈ {gb(e.bytes)} GB</div>}
+              </div>
+              <div>
+                {e.ids.length > 0 ? (
+                  <button className="btn" disabled={undoing[e.id] === "restoring…"} onClick={() => undo(e)}>
+                    Undo
+                  </button>
+                ) : (
+                  <span className="hint">restore in Gmail</span>
+                )}
+              </div>
+              {undoing[e.id] && undoing[e.id] !== "restoring…" && (
+                <div className="status err">{undoing[e.id]}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="dangerzone">
         <p style={{ marginTop: 0 }}>
           Type <strong>DELETE FOREVER</strong> to permanently delete everything in Trash.
+          {log.length > 0 && " Undo above stops working once you do."}
         </p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <input

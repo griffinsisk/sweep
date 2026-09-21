@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..deps import gmail_client
-from ..google import Gmail
+from ..google import TOO_FAST, Gmail
 from ..presets import PRESET_INDEX, PRESETS
 from ..session import read_session
 
@@ -40,6 +40,9 @@ def _count_stream(request: Request, query: str) -> StreamingResponse:
         except HTTPException as e:
             log.error("count failed for %r: %s", query, e.detail)
             yield json.dumps({"error": e.detail, "done": True}) + "\n"
+        except ValueError:  # a throttled 200 with no JSON body, in practice
+            log.warning("count for %r hit an unparseable Google response", query)
+            yield json.dumps({"error": TOO_FAST, "done": True}) + "\n"
         except Exception as e:  # anything else must still reach the UI as a line
             log.exception("count crashed for %r", query)
             yield json.dumps({"error": f"{type(e).__name__}: {e}", "done": True}) + "\n"
