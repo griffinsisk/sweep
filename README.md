@@ -18,7 +18,6 @@ Sweep clears out years of Gmail in minutes. It runs on your own computer, talks 
 - **Then trash it.** Tens of thousands of messages deleted with one button.
 - **Changed your mind?** Undo. Every action is reversible right up until you empty the trash.
 - **Build your own sweeps.** Older than 3 years, has an attachment over 10 MB. No Gmail search syntax required, though you can type it if you know it.
-- **Stop the refill.** See who fills your inbox with real per-sender counts, then unsubscribe from dozens of lists with one button wherever the sender supports one-click.
 
 Nothing is stored anywhere. Your Gmail token lives in your browser and dies when you sign out.
 
@@ -42,23 +41,21 @@ Moving mail to Trash frees nothing. Gmail keeps it for 30 days in case you regre
 
 After that, watch the gauge. Google takes a few minutes to admit the space is free.
 
-## Optional: ask Claude
-
-Set `ANTHROPIC_API_KEY` and a button appears on the senders list. Claude looks at who's been filling your inbox and says keep, unsubscribe, or trash, with a reason. It sees sender domains, counts, and a few subject lines. Never a message body. You still press the button.
-
 ## Should you use this?
 
 **Yes, if** you have a personal Gmail that has quietly filled up over a decade and you'd rather spend ten minutes than a weekend.
 
 **Probably not, if** you need to keep everything for legal or tax reasons, or you're on a Google Workspace account your admin controls. Sweep is a broom, not an archivist.
 
+**Not for unsubscribing.** Gmail's own Manage subscriptions page already lists who mails you most and lets you leave. Sweep is for the years of mail those senders already left behind.
+
 ## Privacy, in one breath
 
-Reads metadata, never bodies. Moves or deletes only what you click. Sends no email unless you turn on unsubscribe-by-email. Details in [PRIVACY.md](PRIVACY.md). Revoke access anytime at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
+Reads metadata, never bodies. Moves or deletes only what you click. Sends nothing anywhere but Google. Details in [PRIVACY.md](PRIVACY.md). Revoke access anytime at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
 
 ## What's next
 
-A Claude check for "is there anything in here I should keep?", and an MCP server so Claude Desktop can run a cleanup for you. Issues and ideas welcome.
+An MCP server, so a Claude Desktop session can count, look at who is in a query, and trash it, with the same confirmation gates. Issues and ideas welcome.
 
 ## License
 

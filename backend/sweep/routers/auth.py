@@ -54,7 +54,7 @@ async def callback(request: Request, code: str | None = None, state: str | None 
 
 @router.get("/me")
 async def me(session: Session = Depends(read_session)):
-    return {"email": session.email, "ai_enabled": bool(settings.anthropic_api_key)}
+    return {"email": session.email}
 
 
 @router.post("/logout")

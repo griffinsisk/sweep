@@ -48,8 +48,6 @@ sweep
 
 Or put those two lines in a `.env` file in the folder you run `sweep` from. Your browser opens at http://127.0.0.1:8000. Sign in with Google. You will see an "unverified app" warning because the project is in Testing mode. Choose **Advanced → Go to Sweep → Allow**.
 
-To enable the "Ask Claude what to do" button, also set `ANTHROPIC_API_KEY`. Everything else works without it.
-
 ## 3. First real run
 
 1. Note the storage number on the gauge.

@@ -4,13 +4,11 @@ Uses raw REST via httpx rather than google-api-python-client so the
 request surface stays small and readable.
 """
 import asyncio
-import base64
 import logging
 import time
 from collections import Counter
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from email.message import EmailMessage
 from typing import Any
 
 import httpx
@@ -46,7 +44,6 @@ UNITS_PER_SECOND = 200
 UNITS_BURST = 250
 COST_GET = 5  # messages.get, messages.list
 COST_BATCH = 50  # batchModify, batchDelete
-COST_SEND = 100  # messages.send
 
 
 class _Pacer:
@@ -207,24 +204,6 @@ class Gmail:
             if not token or (limit and len(ids) >= limit):
                 break
         return ids[:limit] if limit else ids
-
-    async def count_ids(self, query: str, max_pages: int) -> tuple[int, bool]:
-        """How many messages match, by paging ids with no size sample. Cheap
-        enough to run once per sender. Returns (count, capped)."""
-        n = 0
-        token: str | None = None
-        for _ in range(max_pages):
-            params: dict[str, Any] = {
-                "q": query, "maxResults": 500, "fields": "nextPageToken,messages/id",
-            }
-            if token:
-                params["pageToken"] = token
-            data = await self._json("GET", f"{GMAIL}/messages", params=params)
-            n += len(data.get("messages", []))
-            token = data.get("nextPageToken")
-            if not token:
-                return n, False
-        return n, True
 
     async def count(self, query: str, max_pages: int = COUNT_MAX_PAGES) -> dict[str, Any]:
         """Final result of count_stream(); kept for callers that do not stream."""
@@ -419,18 +398,6 @@ class Gmail:
         async for n in self._batch_stream(ids, "batchDelete", {}):
             yield {"deleted": n, "total": len(ids), "done": False}
         yield {"deleted": len(ids), "total": len(ids), "done": True}
-
-    async def send_message(self, to: str, subject: str, body: str) -> None:
-        """Send one plain-text message from the signed-in account. The only
-        thing Sweep ever sends, and only for a mailto unsubscribe the user
-        opted into."""
-        msg = EmailMessage()
-        msg["From"] = self.session.email
-        msg["To"] = to
-        msg["Subject"] = subject
-        msg.set_content(body)
-        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-        await self._request("POST", f"{GMAIL}/messages/send", cost=COST_SEND, json={"raw": raw})
 
     async def trash(self, ids: list[str]) -> int:
         """Move messages to Trash, 1,000 per API call."""

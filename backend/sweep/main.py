@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import settings
-from .routers import ai, auth, cleanup, senders
+from .routers import auth, cleanup
 
 STATIC = Path(__file__).parent / "static"
 
@@ -27,8 +27,6 @@ if settings.frontend_origin:  # Vite dev server on another origin
 
 app.include_router(auth.router)
 app.include_router(cleanup.router)
-app.include_router(senders.router)
-app.include_router(ai.router)
 
 
 @app.get("/healthz")

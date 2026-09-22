@@ -124,21 +124,6 @@ section > p.lede { color: var(--muted); margin: 0 0 20px; max-width: 60ch; }
 .btn.danger:hover:not(:disabled) { background: #8f1c13; }
 .btn.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
 
-/* Senders */
-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-th, td { text-align: left; padding: 10px 12px; border-top: 1px solid var(--line); font-size: 14px; vertical-align: top; }
-th { border-top: none; color: var(--muted); font-weight: 600; font-size: 13px; }
-td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-td .name { font-weight: 600; }
-td .addr { color: var(--muted); font-size: 12px; }
-td .reason { color: var(--muted); font-size: 12px; }
-.tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 7px; border-radius: 3px; }
-.tag.keep { background: #e6f2ec; color: var(--freed); }
-.tag.unsubscribe { background: #eaf0f8; color: var(--used); }
-.tag.trash { background: #f8e8e6; color: var(--danger); }
-.toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
-.toolbar select { font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); }
-
 .dangerzone { border: 1px solid var(--danger); border-radius: var(--radius); padding: 18px; background: var(--surface); }
 .dangerzone input { font: inherit; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--radius); width: 100%; max-width: 280px; }
 
