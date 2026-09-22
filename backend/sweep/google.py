@@ -141,7 +141,7 @@ class Gmail:
             self.token_refreshed = True
             r = await call()
         for attempt in range(RETRIES):
-            if r.status_code not in RETRY_STATUSES and not _throttled_200(r):
+            if r.status_code not in RETRY_STATUSES and not _throttled_200(r) and not _quota_403(r):
                 break
             await asyncio.sleep(0.5 * 2**attempt)
             r = await call()
@@ -415,6 +415,13 @@ class Gmail:
         async for _ in self._batch_stream(ids, "batchDelete", {}):
             pass
         return len(ids)
+
+
+def _quota_403(r: httpx.Response) -> bool:
+    """Gmail reports the per-minute project quota ('Units per minute per
+    user', 15,000 by default) as a 403 with reason rateLimitExceeded, not
+    a 429. It clears within the minute, so it is worth the same backoff."""
+    return r.status_code == 403 and "rateLimit" in r.text
 
 
 def _throttled_200(r: httpx.Response) -> bool:

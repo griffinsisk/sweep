@@ -254,3 +254,27 @@ async def test_pacer_spaces_calls_by_quota_cost():
     for _ in range(3):
         await p.take(100)  # first is free, the next two wait ~0.1s each
     assert 0.18 <= time.monotonic() - t < 0.6
+
+
+async def test_quota_403_is_retried_then_succeeds(monkeypatch):
+    """The per-minute quota comes back as 403 rateLimitExceeded; back off like a 429."""
+    from sweep.google import Gmail as G
+    from sweep.session import Session as S
+
+    monkeypatch.setattr("sweep.google.asyncio.sleep", lambda s: _noop())
+    answers = iter([
+        httpx.Response(403, json={"error": {"errors": [{"reason": "rateLimitExceeded"}]}}),
+        httpx.Response(200, json={"messagesTotal": 5}),
+    ])
+
+    class FakeClient:
+        async def request(self, method, url, **kw):
+            return next(answers)
+
+    g = G(S(access_token="t", refresh_token=None, email="x@y"))
+    g._client = FakeClient()  # type: ignore[assignment]
+    assert (await g.profile()) == {"messagesTotal": 5}
+
+
+async def _noop():
+    return None
