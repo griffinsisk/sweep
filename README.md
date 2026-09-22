@@ -28,7 +28,7 @@ You'll need a Google Cloud project of your own. Takes about ten minutes, and [SE
 Then:
 
 ```bash
-uv tool install https://github.com/griffinsisk/sweep/releases/latest/download/sweep_gmail-0.2.0-py3-none-any.whl
+uv tool install https://github.com/griffinsisk/sweep/releases/latest/download/sweep_gmail-0.3.0-py3-none-any.whl
 export GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=...
 sweep
 ```

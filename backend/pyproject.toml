@@ -1,6 +1,6 @@
 [project]
 name = "sweep-gmail"
-version = "0.2.0"
+version = "0.3.0"
 description = "Bulk Gmail cleanup that runs on your own machine"
 license = "MIT"
 requires-python = ">=3.11"

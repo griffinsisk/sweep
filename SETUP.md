@@ -32,10 +32,10 @@ git clone https://github.com/griffinsisk/sweep && cd sweep/backend
 uv tool install .
 
 # uv, from the release wheel (once a v* tag has been pushed)
-uv tool install https://github.com/griffinsisk/sweep/releases/latest/download/sweep_gmail-0.2.0-py3-none-any.whl
+uv tool install https://github.com/griffinsisk/sweep/releases/latest/download/sweep_gmail-0.3.0-py3-none-any.whl
 
 # pipx
-pipx install https://github.com/griffinsisk/sweep/releases/latest/download/sweep_gmail-0.2.0-py3-none-any.whl
+pipx install https://github.com/griffinsisk/sweep/releases/latest/download/sweep_gmail-0.3.0-py3-none-any.whl
 ```
 
 Then, from any folder:

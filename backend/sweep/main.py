@@ -13,7 +13,7 @@ STATIC = Path(__file__).parent / "static"
 app = FastAPI(
     title="Sweep",
     description="Bulk Gmail cleanup. Runs on your machine; nothing stored anywhere.",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 if settings.frontend_origin:  # Vite dev server on another origin
