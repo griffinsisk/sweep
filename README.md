@@ -18,6 +18,7 @@ Sweep clears out years of Gmail in minutes. It runs on your own computer, talks 
 - **Then trash it.** Tens of thousands of messages deleted with one button.
 - **Changed your mind?** Undo. Every action is reversible right up until you empty the trash.
 - **Build your own sweeps.** Older than 3 years, has an attachment over 10 MB. No Gmail search syntax required, though you can type it if you know it.
+- **Stop the refill.** See who fills your inbox with real per-sender counts, then unsubscribe from dozens of lists with one button wherever the sender supports one-click.
 
 Nothing is stored anywhere. Your Gmail token lives in your browser and dies when you sign out.
 
@@ -53,11 +54,11 @@ Set `ANTHROPIC_API_KEY` and a button appears on the senders list. Claude looks a
 
 ## Privacy, in one breath
 
-Reads metadata, never bodies. Moves or deletes only what you click. Sends no email. Details in [PRIVACY.md](PRIVACY.md). Revoke access anytime at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
+Reads metadata, never bodies. Moves or deletes only what you click. Sends no email unless you turn on unsubscribe-by-email. Details in [PRIVACY.md](PRIVACY.md). Revoke access anytime at [myaccount.google.com/permissions](https://myaccount.google.com/permissions).
 
 ## What's next
 
-Unsubscribe buttons for senders who support one-click, honest per-sender totals, a Claude check for "is there anything in here I should keep?", and an MCP server so Claude Desktop can run a cleanup for you. Issues and ideas welcome.
+A Claude check for "is there anything in here I should keep?", and an MCP server so Claude Desktop can run a cleanup for you. Issues and ideas welcome.
 
 ## License
 
