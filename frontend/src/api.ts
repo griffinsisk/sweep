@@ -70,14 +70,32 @@ export type Storage = {
   messagesTotal: number | null;
   quota: { limit?: number; usage?: number; usageInDrive?: number } | null;
 };
+export type UnsubMethod = "one_click" | "mailto" | "manual";
+export type Unsubscribe = {
+  method: UnsubMethod; // one_click: Sweep POSTs. mailto: Sweep sends one message, if opted in. manual: a link.
+  url: string | null;
+  mailto: string | null;
+};
 export type Sender = {
   address: string;
   domain: string;
   name: string;
-  count: number;
-  estimated_bytes: number;
-  unsubscribe_url: string | null;
+  sampled: number; // messages from this sender inside the sample
+  total: number; // messages from this sender inside the scan scope
+  capped: boolean; // total stopped at 10,000
+  estimated_bytes: number; // mean sampled size x total
+  unsubscribe: Unsubscribe | null;
   subjects: string[];
+};
+export type UnsubItem = { address: string; method: "one_click" | "mailto"; url?: string | null; mailto?: string | null };
+export type UnsubProgress = {
+  address?: string;
+  status?: "requested" | "failed";
+  detail?: string;
+  requested?: number;
+  failed?: number;
+  done: boolean;
+  error?: string;
 };
 export type Suggestion = { address: string; action: "keep" | "unsubscribe" | "trash"; reason: string };
 
@@ -106,12 +124,19 @@ export const api = {
       headers: JSON_H,
       body: JSON.stringify({ ids, confirm: "DELETE FOREVER" }),
     }),
-  senders: (sample = 1000) => req<Sender[]>(`/api/senders?sample=${sample}`),
+  senders: (sample: number, query: string) =>
+    req<Sender[]>(`/api/senders?sample=${sample}&query=${encodeURIComponent(query)}`),
+  unsubscribe: (items: UnsubItem[], allowMailto: boolean) =>
+    ndjson<UnsubProgress>("/api/senders/unsubscribe", {
+      method: "POST",
+      headers: JSON_H,
+      body: JSON.stringify({ items, allow_mailto: allowMailto }),
+    }),
   suggest: (senders: Sender[]) =>
     req<Suggestion[]>("/api/ai/suggest", {
       method: "POST",
       body: JSON.stringify(
-        senders.map((s) => ({ address: s.address, domain: s.domain, count: s.count, subjects: s.subjects }))
+        senders.map((s) => ({ address: s.address, domain: s.domain, count: s.total, subjects: s.subjects }))
       ),
     }),
   emptyTrash: () =>

@@ -10,6 +10,8 @@ Sweep is a tool for cleaning up your own Gmail. This is what it does with your d
 
 **What it sends to third parties.** When you ask for suggestions, Sweep sends sender domains, message counts, and up to three subject lines per sender to Anthropic's Claude API to classify them. It never sends message bodies, recipients, or your email address.
 
-**What it never does.** Read message content. Send email. Act without a click from you. Sell or share your data.
+**Unsubscribing.** When you press Unsubscribe, Sweep does only what that sender's own mail headers offered. For a sender that supports one-click unsubscribe (RFC 8058), Sweep posts the standard request to the sender's https address, with no cookies and nothing from your account. For a sender that only offers a mailto address, Sweep can send one short message from your Gmail account to that address, and only after you tick "Also send unsubscribe emails from my account". That box is off by default and resets every time the page loads. Sweep reports a request as "requested", not "unsubscribed", because it can only know that the sender accepted it. The date of each request is kept in your browser's local storage, alongside the history above.
+
+**What it never does.** Read message content. Send email, other than the unsubscribe messages you turned on. Act without a click from you. Sell or share your data.
 
 **Revoking access.** Visit https://myaccount.google.com/permissions and remove Sweep at any time.

@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
-import { collapseSameDay, recordFreed, startSession, summarize, Ledger } from "./ledger";
-import { api, gb, mb, BatchProgress, Count, Preset, Preview, Sender, Storage, Suggestion, TrashProgress } from "./api";
+import { collapseSameDay, loadUnsubscribes, recordFreed, recordUnsubscribe, startSession, summarize, Ledger, Unsubscribes } from "./ledger";
+import { api, gb, mb, BatchProgress, Count, Preset, Preview, Sender, Storage, Suggestion, TrashProgress, UnsubItem } from "./api";
 
 type Progress = { label: string; current: number; total?: number };
 type Status = {
@@ -184,6 +184,7 @@ function Dashboard({ email, aiEnabled }: { email: string; aiEnabled: boolean }) 
       <Presets onTrashed={onTrashed} onCustomize={customize} />
       <QueryBuilder ref={builderRef} seed={seed} onTrashed={onTrashed} />
       <Senders
+        email={email}
         aiEnabled={aiEnabled}
         onTrashed={(n, bytes, sender, ids) => onTrashed({ trashed: n, bytes, ids, label: sender, query: "" })}
       />
@@ -726,23 +727,59 @@ function CountCell({ c, counting }: { c?: Count; counting: boolean }) {
   );
 }
 
+const SCAN_AGES: { label: string; value: string }[] = [
+  { label: "All mail (newest first)", value: "" },
+  { label: "Older than 1 month", value: "older_than:1m" },
+  { label: "Older than 6 months", value: "older_than:6m" },
+  { label: "Older than 1 year", value: "older_than:1y" },
+  { label: "Older than 2 years", value: "older_than:2y" },
+];
+const SCAN_SAMPLES = [500, 1000, 2500, 5000];
+const TOTAL_CAP = 10_000;
+
+const fmtTotal = (s: Sender) => (s.capped ? `${TOTAL_CAP.toLocaleString()}+` : s.total.toLocaleString());
+
+/** Can Sweep do this unsubscribe itself, given the mailto opt-in? */
+function actionable(s: Sender, allowMailto: boolean): UnsubItem | null {
+  const u = s.unsubscribe;
+  if (!u) return null;
+  if (u.method === "one_click") return { address: s.address, method: "one_click", url: u.url };
+  if (u.method === "mailto" && allowMailto) return { address: s.address, method: "mailto", mailto: u.mailto };
+  return null;
+}
+
 function Senders({
+  email,
   onTrashed,
   aiEnabled,
 }: {
+  email: string;
   onTrashed: (n: number, bytes: number, sender: string, ids: string[]) => void;
   aiEnabled: boolean;
 }) {
+  const [age, setAge] = useState("");
+  const [sample, setSample] = useState(1000);
+  const [scanned, setScanned] = useState<{ age: string; sample: number } | null>(null);
   const [senders, setSenders] = useState<Sender[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [suggestions, setSuggestions] = useState<Record<string, Suggestion>>({});
   const [rowStatus, setRowStatus] = useState<Record<string, string>>({});
+  const [allowMailto, setAllowMailto] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [unsubscribing, setUnsubscribing] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState<Status>({ kind: "idle" });
+  const [requested, setRequested] = useState<Unsubscribes>(() => loadUnsubscribes(email));
 
   const load = async () => {
     setLoading(true);
+    setSelected(new Set());
+    setBulkStatus({ kind: "idle" });
     try {
-      setSenders(await api.senders(1000));
+      setSenders(await api.senders(sample, age));
+      setScanned({ age, sample });
+    } catch (e) {
+      alert(String(e));
     } finally {
       setLoading(false);
     }
@@ -762,12 +799,14 @@ function Senders({
   };
 
   const trashSender = async (s: Sender) => {
-    if (!confirm(`Trash every message from ${s.address}?`)) return;
+    const scope = scanned?.age ? `from:${s.address} ${scanned.age}` : `from:${s.address}`;
+    const what = scanned?.age ? `${fmtTotal(s)} messages from ${s.address} in this scan` : `every message from ${s.address}`;
+    if (!confirm(`Trash ${what}?`)) return;
     setRowStatus((r) => ({ ...r, [s.address]: "trashing…" }));
     try {
       let trashed = 0;
       let ids: string[] = [];
-      for await (const line of api.queryTrash(`from:${s.address}`)) {
+      for await (const line of api.queryTrash(scope)) {
         if (line.error) throw new Error(line.error);
         trashed = line.trashed ?? trashed;
         if (line.done) ids = line.ids ?? [];
@@ -776,25 +815,93 @@ function Senders({
           [s.address]: line.phase === "listing" ? `finding… ${line.found ?? 0}` : `trashing… ${trashed}`,
         }));
       }
-      onTrashed(trashed, s.estimated_bytes * (trashed / Math.max(1, s.count)), `From ${s.address}`, ids);
+      onTrashed(trashed, s.estimated_bytes * (trashed / Math.max(1, s.total)), `From ${s.address}`, ids);
       setRowStatus((r) => ({ ...r, [s.address]: `trashed ${trashed}` }));
     } catch (e) {
       setRowStatus((r) => ({ ...r, [s.address]: String(e) }));
     }
   };
 
-  const totalSampled = useMemo(() => senders?.reduce((n, s) => n + s.count, 0) ?? 0, [senders]);
+  /** One or many: the same stream, one line per sender, "requested" never "unsubscribed". */
+  const unsubscribe = async (items: UnsubItem[]) => {
+    if (!items.length) return;
+    setUnsubscribing(true);
+    setBulkStatus({ kind: "working", progress: { label: "Unsubscribing", current: 0, total: items.length } });
+    setRowStatus((r) => ({ ...r, ...Object.fromEntries(items.map((i) => [i.address, "requesting…"])) }));
+    let seen = 0;
+    try {
+      for await (const line of api.unsubscribe(items, allowMailto)) {
+        if (line.error) throw new Error(line.error);
+        if (line.address) {
+          seen += 1;
+          const ok = line.status === "requested";
+          if (ok) setRequested(recordUnsubscribe(email, line.address));
+          setRowStatus((r) => ({ ...r, [line.address!]: ok ? "requested" : `failed: ${line.detail ?? "unknown"}` }));
+          setBulkStatus({ kind: "working", progress: { label: "Unsubscribing", current: seen, total: items.length } });
+        }
+        if (line.done) {
+          const f = line.failed ?? 0;
+          setBulkStatus({
+            kind: f ? "err" : "ok",
+            text: `Requested ${line.requested ?? 0} of ${items.length}${f ? `, ${f} failed` : ""}. Senders usually stop within a few days.`,
+          });
+        }
+      }
+      setSelected(new Set());
+    } catch (e) {
+      setBulkStatus({ kind: "err", text: String(e) });
+    } finally {
+      setUnsubscribing(false);
+    }
+  };
+
+  const eligible = useMemo(
+    () => (senders ?? []).filter((s) => actionable(s, allowMailto) && !requested[s.address]),
+    [senders, allowMailto, requested]
+  );
+  const selectedItems = eligible.filter((s) => selected.has(s.address)).map((s) => actionable(s, allowMailto)!);
+  const mailtoCount = (senders ?? []).filter((s) => s.unsubscribe?.method === "mailto").length;
+  const totalInScope = useMemo(() => senders?.reduce((n, s) => n + s.total, 0) ?? 0, [senders]);
+  const anyCapped = senders?.some((s) => s.capped) ?? false;
+
+  const toggle = (addr: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(addr)) next.delete(addr);
+      else next.add(addr);
+      return next;
+    });
+  const selectAll = () => setSelected(new Set(eligible.map((s) => s.address)));
 
   return (
     <section>
       <h2>Who fills your inbox</h2>
       <p className="lede">
-        A sample of your older mail grouped by sender. Trash a sender in one click, or
-        unsubscribe where they've given us a link.
+        A sample of your mail grouped by sender, with the real count for each. Unsubscribe where a sender
+        promised a way out, or trash everything they sent.
       </p>
       <div className="toolbar">
+        <select value={age} onChange={(e) => setAge(e.target.value)} disabled={loading} aria-label="Scan scope">
+          {SCAN_AGES.map((a) => (
+            <option key={a.value} value={a.value}>
+              {a.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sample}
+          onChange={(e) => setSample(Number(e.target.value))}
+          disabled={loading}
+          aria-label="Sample size"
+        >
+          {SCAN_SAMPLES.map((n) => (
+            <option key={n} value={n}>
+              Sample {n.toLocaleString()}
+            </option>
+          ))}
+        </select>
         <button className="btn" onClick={load} disabled={loading}>
-          {loading ? "Scanning 1,000 messages…" : senders ? "Rescan" : "Scan my inbox"}
+          {loading ? `Scanning ${sample.toLocaleString()} messages…` : senders ? "Rescan" : "Scan my inbox"}
         </button>
         {senders && aiEnabled && (
           <button className="btn" onClick={suggest} disabled={suggesting}>
@@ -808,59 +915,116 @@ function Senders({
         )}
         {senders && (
           <span className="hint" style={{ color: "var(--muted)", fontSize: 13 }}>
-            {senders.length} senders across {totalSampled.toLocaleString()} messages
+            {senders.length} senders, {anyCapped ? "over " : ""}
+            {totalInScope.toLocaleString()} messages in scope
           </span>
         )}
       </div>
 
       {senders && (
-        <table>
-          <thead>
-            <tr>
-              <th>Sender</th>
-              <th className="num">Messages</th>
-              <th className="num">Size</th>
-              <th>Suggestion</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {senders.map((s) => {
-              const sug = suggestions[s.address];
-              return (
-                <tr key={s.address}>
-                  <td>
-                    <div className="name">{s.name || s.domain}</div>
-                    <div className="addr">{s.address}</div>
-                  </td>
-                  <td className="num">{s.count}</td>
-                  <td className="num">{mb(s.estimated_bytes)} MB</td>
-                  <td>
-                    {sug && (
-                      <>
-                        <span className={`tag ${sug.action}`}>{sug.action}</span>
-                        <div className="reason">{sug.reason}</div>
-                      </>
-                    )}
-                  </td>
-                  <td style={{ whiteSpace: "nowrap" }}>
-                    {s.unsubscribe_url && (
-                      <a className="btn" href={s.unsubscribe_url} target="_blank" rel="noreferrer">
-                        Unsubscribe
-                      </a>
-                    )}{" "}
-                    <button className="btn danger" onClick={() => trashSender(s)}>
-                      Trash all
-                    </button>
-                    {rowStatus[s.address] && (
-                      <div className="reason">{rowStatus[s.address]}</div>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <>
+          <div className="toolbar">
+            <button
+              className="btn primary"
+              onClick={() => unsubscribe(selectedItems)}
+              disabled={unsubscribing || selectedItems.length === 0}
+            >
+              {unsubscribing ? "Unsubscribing…" : `Unsubscribe from ${selectedItems.length} selected`}
+            </button>
+            {eligible.length > 0 && (
+              <button className="btn" onClick={selectAll} disabled={unsubscribing}>
+                Select all {eligible.length} Sweep can do
+              </button>
+            )}
+            <label className="hint" style={{ color: "var(--muted)", fontSize: 13, display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={allowMailto}
+                onChange={(e) => setAllowMailto(e.target.checked)}
+                disabled={unsubscribing}
+              />
+              Also send unsubscribe emails from my account
+              {mailtoCount > 0 && ` (${mailtoCount} sender${mailtoCount === 1 ? "" : "s"} only offer that)`}
+            </label>
+          </div>
+          <RowFeedback s={bulkStatus} />
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                <th>Sender</th>
+                <th className="num">Messages</th>
+                <th className="num">Size</th>
+                <th>Suggestion</th>
+                <th>Unsubscribe</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {senders.map((s) => {
+                const sug = suggestions[s.address];
+                const u = s.unsubscribe;
+                const item = actionable(s, allowMailto);
+                const done = requested[s.address];
+                return (
+                  <tr key={s.address}>
+                    <td>
+                      {item && !done && (
+                        <input
+                          type="checkbox"
+                          checked={selected.has(s.address)}
+                          onChange={() => toggle(s.address)}
+                          disabled={unsubscribing}
+                          aria-label={`Select ${s.address}`}
+                        />
+                      )}
+                    </td>
+                    <td>
+                      <div className="name">{s.name || s.domain}</div>
+                      <div className="addr">{s.address}</div>
+                    </td>
+                    <td className="num">
+                      {fmtTotal(s)}
+                      <div className="reason">{s.sampled} in sample</div>
+                    </td>
+                    <td className="num">≈{mb(s.estimated_bytes)} MB</td>
+                    <td>
+                      {sug && (
+                        <>
+                          <span className={`tag ${sug.action}`}>{sug.action}</span>
+                          <div className="reason">{sug.reason}</div>
+                        </>
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {done ? (
+                        <span className="reason">requested {done.slice(0, 10)}</span>
+                      ) : item ? (
+                        <button className="btn" onClick={() => unsubscribe([item])} disabled={unsubscribing}>
+                          {item.method === "mailto" ? "Unsubscribe by email" : "Unsubscribe"}
+                        </button>
+                      ) : u?.method === "mailto" ? (
+                        <span className="reason">by email only · tick the box above</span>
+                      ) : u?.url ? (
+                        <a className="btn" href={u.url} target="_blank" rel="noreferrer">
+                          Open their page
+                        </a>
+                      ) : (
+                        <span className="reason">no unsubscribe header</span>
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button className="btn danger" onClick={() => trashSender(s)}>
+                        Trash all
+                      </button>
+                      {rowStatus[s.address] && <div className="reason">{rowStatus[s.address]}</div>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
       )}
     </section>
   );

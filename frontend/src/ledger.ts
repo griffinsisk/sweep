@@ -81,3 +81,31 @@ export function summarize(ledger: Ledger, currentUsage: number) {
     estimatedSinceFirst: ledger.sessions.reduce((n, s) => n + s.estimatedFreed, 0),
   };
 }
+
+/** Unsubscribe requests, by sender address, so a later scan can show that
+ * a sender was already asked to stop. "Requested" is all we know: the
+ * sender accepted the request, not that mail stopped. */
+export type Unsubscribes = Record<string, string>; // address -> ISO date requested
+
+const unsubKey = (email: string) => `sweep:unsub:${email.toLowerCase()}`;
+
+export function loadUnsubscribes(email: string): Unsubscribes {
+  try {
+    const raw = localStorage.getItem(unsubKey(email));
+    const parsed = raw ? (JSON.parse(raw) as Unsubscribes) : null;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function recordUnsubscribe(email: string, address: string): Unsubscribes {
+  const all = loadUnsubscribes(email);
+  all[address.toLowerCase()] = new Date().toISOString();
+  try {
+    localStorage.setItem(unsubKey(email), JSON.stringify(all));
+  } catch {
+    /* storage unavailable: the row still shows "requested" until reload */
+  }
+  return all;
+}
