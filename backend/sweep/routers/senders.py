@@ -100,7 +100,9 @@ async def top_senders(
     limit: int = Query(50, ge=5, le=200),
     gmail: Gmail = Depends(gmail_client),
 ):
+    log.info("senders: scan scope=%r sample=%d", query or "all mail", sample)
     ids = await gmail.list_message_ids(query, limit=sample)
+    log.info("senders: %d ids listed, reading headers", len(ids))
     msgs = await gmail.metadata_many(
         ids, ["From", "Subject", "List-Unsubscribe", "List-Unsubscribe-Post"]
     )
@@ -125,6 +127,7 @@ async def top_senders(
             b["subjects"].append(headers["subject"][:120])
 
     top = sorted(buckets.items(), key=lambda kv: kv[1]["count"], reverse=True)[:limit]
+    log.info("senders: %d distinct senders, counting totals for top %d", len(buckets), len(top))
 
     # The sample says who shows up; the real count says how much of them there is.
     sem = asyncio.Semaphore(TOTAL_CONCURRENCY)
@@ -134,6 +137,7 @@ async def top_senders(
             return await gmail.count_ids(scope_query(addr, query), max_pages=TOTAL_PAGES)
 
     totals = await asyncio.gather(*(total(addr) for addr, _ in top))
+    log.info("senders: done, %d senders", len(top))
 
     out = [
         Sender(

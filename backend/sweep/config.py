@@ -8,7 +8,7 @@ DEFAULT_PORT = 8000
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     google_client_id: str
     google_client_secret: str
@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # backend serves the built frontend itself and redirects to "/".
     frontend_origin: str = ""
     cookie_secure: bool = False
+
+    # SWEEP_DEBUG=1: log every Gmail call, not just Sweep's own phase lines.
+    debug: bool = Field(default=False, alias="SWEEP_DEBUG")
 
     scopes: list[str] = [
         "openid",
