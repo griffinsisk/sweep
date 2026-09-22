@@ -6,6 +6,7 @@ request surface stays small and readable.
 import asyncio
 import base64
 import logging
+import time
 from collections import Counter
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -35,6 +36,41 @@ NEEDS_RECONSENT = (
     "everything on Google's consent screen."
 )
 RETRY_STATUSES = {429, 500, 502, 503, 504}
+
+# Gmail allows 250 quota units per second per user as a moving average.
+# Concurrency alone does not bound the rate: eight fast calls at a time is
+# still hundreds per second. Every call takes its units from this bucket
+# first, so a 1,000-message header read paces itself instead of getting
+# half its calls refused. One process serves one user, so one bucket.
+UNITS_PER_SECOND = 200
+UNITS_BURST = 250
+COST_GET = 5  # messages.get, messages.list
+COST_BATCH = 50  # batchModify, batchDelete
+COST_SEND = 100  # messages.send
+
+
+class _Pacer:
+    """Token bucket. take(cost) waits until cost units are available."""
+
+    def __init__(self, rate: float, burst: float):
+        self.rate, self.burst = rate, burst
+        self.tokens = burst
+        self.updated = time.monotonic()
+        self.lock = asyncio.Lock()
+
+    async def take(self, cost: float) -> None:
+        async with self.lock:  # waiters queue in order; the lock is held while sleeping
+            while True:
+                now = time.monotonic()
+                self.tokens = min(self.burst, self.tokens + (now - self.updated) * self.rate)
+                self.updated = now
+                if self.tokens >= cost:
+                    self.tokens -= cost
+                    return
+                await asyncio.sleep((cost - self.tokens) / self.rate)
+
+
+pacer = _Pacer(UNITS_PER_SECOND, UNITS_BURST)
 
 
 async def exchange_code(code: str) -> dict[str, Any]:
@@ -93,19 +129,25 @@ class Gmail:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self.session.access_token}"}
 
-    async def _request(self, method: str, url: str, **kw) -> httpx.Response:
-        """One Gmail call. Refreshes the token once on 401 and backs off on
-        429 / 5xx the way Google asks (0.5s, 1s, 2s, 4s) before giving up."""
-        r = await self._client.request(method, url, headers=self._headers, **kw)
+    async def _request(self, method: str, url: str, cost: int = COST_GET, **kw) -> httpx.Response:
+        """One Gmail call, paced by quota cost. Refreshes the token once on
+        401 and backs off on 429 / 5xx the way Google asks (0.5s, 1s, 2s,
+        4s) before giving up."""
+
+        async def call() -> httpx.Response:
+            await pacer.take(cost)
+            return await self._client.request(method, url, headers=self._headers, **kw)
+
+        r = await call()
         if r.status_code == 401 and self.session.refresh_token and not self.token_refreshed:
             self.session.access_token = await refresh_access_token(self.session.refresh_token)
             self.token_refreshed = True
-            r = await self._client.request(method, url, headers=self._headers, **kw)
+            r = await call()
         for attempt in range(RETRIES):
             if r.status_code not in RETRY_STATUSES and not _throttled_200(r):
                 break
             await asyncio.sleep(0.5 * 2**attempt)
-            r = await self._client.request(method, url, headers=self._headers, **kw)
+            r = await call()
         if r.status_code == 429 or (r.status_code == 403 and "rateLimit" in r.text):
             raise HTTPException(429, TOO_FAST)
         if _throttled_200(r):  # still empty after backoff: it is a rate limit in disguise
@@ -140,11 +182,11 @@ class Gmail:
     # ---- reads -------------------------------------------------------------
 
     async def profile(self) -> dict[str, Any]:
-        return (await self._request("GET", f"{GMAIL}/profile")).json()
+        return (await self._request("GET", f"{GMAIL}/profile", cost=1)).json()
 
     async def storage_quota(self) -> dict[str, int] | None:
         try:
-            r = await self._request("GET", DRIVE_ABOUT, params={"fields": "storageQuota"})
+            r = await self._request("GET", DRIVE_ABOUT, cost=1, params={"fields": "storageQuota"})
         except HTTPException:
             return None  # scope not granted — gauge falls back to counts
         q = r.json().get("storageQuota", {})
@@ -335,8 +377,9 @@ class Gmail:
         for i in range(0, len(chunks), self.BATCH_CONCURRENCY):
             window = chunks[i : i + self.BATCH_CONCURRENCY]
             await asyncio.gather(
-                *(self._request("POST", f"{GMAIL}/messages/{endpoint}", json={"ids": c, **body})
-                  for c in window)
+                *(self._request(
+                    "POST", f"{GMAIL}/messages/{endpoint}", cost=COST_BATCH, json={"ids": c, **body},
+                ) for c in window)
             )
             done += sum(len(c) for c in window)
             yield done
@@ -383,7 +426,7 @@ class Gmail:
         msg["Subject"] = subject
         msg.set_content(body)
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-        await self._request("POST", f"{GMAIL}/messages/send", json={"raw": raw})
+        await self._request("POST", f"{GMAIL}/messages/send", cost=COST_SEND, json={"raw": raw})
 
     async def trash(self, ids: list[str]) -> int:
         """Move messages to Trash, 1,000 per API call."""

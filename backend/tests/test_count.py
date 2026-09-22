@@ -242,3 +242,15 @@ async def test_204_from_list_means_zero_matches():
     trash = [x async for x in g.trash_stream("category:promotions older_than:1y")]
     assert trash[-1]["trashed"] == 0 and trash[-1]["ids"] == []
     assert await g.list_message_ids("q") == []
+
+
+async def test_pacer_spaces_calls_by_quota_cost():
+    import time
+
+    from sweep.google import _Pacer
+
+    p = _Pacer(rate=1000, burst=100)  # 100 units ready, then 1,000 per second
+    t = time.monotonic()
+    for _ in range(3):
+        await p.take(100)  # first is free, the next two wait ~0.1s each
+    assert 0.18 <= time.monotonic() - t < 0.6
