@@ -26,7 +26,7 @@ async def list_presets():
     return PRESETS
 
 
-def _ndjson(request: Request, what: str, open) -> StreamingResponse:
+def stream_ndjson(request: Request, what: str, open) -> StreamingResponse:
     """Stream an async generator of dicts as NDJSON. Manages its own Gmail
     client because the response body runs after request-scoped dependencies
     have exited. Errors become a final line, never a broken stream."""
@@ -57,7 +57,7 @@ def _ndjson(request: Request, what: str, open) -> StreamingResponse:
 
 
 def _count_stream(request: Request, query: str) -> StreamingResponse:
-    return _ndjson(request, f"count {query!r}", lambda g: g.count_stream(query))
+    return stream_ndjson(request, f"count {query!r}", lambda g: g.count_stream(query))
 
 
 @router.get("/presets/{key}/count")
@@ -72,7 +72,7 @@ async def preset_trash(key: str, request: Request):
     with the ids so the browser can undo. 60k messages is ~120 list calls
     and 60 batchModify calls, three at a time."""
     preset = PRESET_INDEX.get(key) or _404(key)
-    return _ndjson(request, f"trash {preset.query!r}", lambda g: g.trash_stream(preset.query))
+    return stream_ndjson(request, f"trash {preset.query!r}", lambda g: g.trash_stream(preset.query))
 
 
 class QueryBody(BaseModel):
@@ -86,7 +86,7 @@ async def query_count(body: QueryBody, request: Request):
 
 @router.post("/query/trash")
 async def query_trash(body: QueryBody, request: Request):
-    return _ndjson(request, f"trash {body.query!r}", lambda g: g.trash_stream(body.query))
+    return stream_ndjson(request, f"trash {body.query!r}", lambda g: g.trash_stream(body.query))
 
 
 class IdsBody(BaseModel):
@@ -102,7 +102,7 @@ async def untrash(body: IdsBody, request: Request):
     """Reverse a trash action: the ids come back from the browser that ran it."""
     if len(body.ids) > 100_000:
         raise HTTPException(400, "Too many ids in one undo")
-    return _ndjson(request, "untrash", lambda g: g.untrash_stream(body.ids))
+    return stream_ndjson(request, "untrash", lambda g: g.untrash_stream(body.ids))
 
 
 @router.post("/delete")
@@ -112,7 +112,7 @@ async def delete_ids(body: DeleteBody, request: Request):
         raise HTTPException(400, 'Type "DELETE FOREVER" to confirm')
     if len(body.ids) > 100_000:
         raise HTTPException(400, "Too many ids in one delete")
-    return _ndjson(request, "delete", lambda g: g.delete_stream(body.ids))
+    return stream_ndjson(request, "delete", lambda g: g.delete_stream(body.ids))
 
 
 def _404(key: str):
