@@ -148,7 +148,9 @@ class Gmail:
                 break
             await asyncio.sleep(0.5 * 2**attempt)
             r = await call()
+        self.last = r  # kept so a failure can be reported with its context
         if r.status_code == 429 or (r.status_code == 403 and "rateLimit" in r.text):
+            log.debug("gmail refused %s %s: %s", method, url.rsplit("/", 1)[-1], r.text[:300])
             raise HTTPException(429, TOO_FAST)
         if _throttled_200(r):  # still empty after backoff: it is a rate limit in disguise
             raise HTTPException(429, TOO_FAST)
@@ -156,7 +158,6 @@ class Gmail:
             raise HTTPException(403, NEEDS_RECONSENT)
         if r.status_code >= 400:
             raise HTTPException(r.status_code, f"Google API error: {r.text[:300]}")
-        self.last = r  # kept so a decode failure can be reported with its context
         return r
 
     async def _json(self, method: str, url: str, **kw) -> dict[str, Any]:
@@ -356,7 +357,10 @@ class Gmail:
         results = await asyncio.gather(*(one(i) for i in ids))
         msgs = [m for m in results if m]
         if len(msgs) < len(ids):
-            log.warning("metadata: %d of %d messages skipped (rate limit or gone)", len(ids) - len(msgs), len(ids))
+            log.warning(
+                "metadata: %d of %d messages skipped; last refusal: %s",
+                len(ids) - len(msgs), len(ids), self.describe_last(),
+            )
         return msgs
 
     # ---- writes ------------------------------------------------------------
