@@ -296,15 +296,26 @@ class Gmail:
         return (await self._request("GET", f"{GMAIL}/messages/{msg_id}", params=params)).json()
 
     async def metadata_many(
-        self, ids: list[str], headers: list[str], concurrency: int = 20
+        self, ids: list[str], headers: list[str], concurrency: int = 8
     ) -> list[dict[str, Any]]:
+        """Headers for many messages. Each get is 5 quota units against
+        250/sec per user, so eight in flight is the most Gmail sustains
+        without 429s. A message that still fails after the retries is
+        dropped rather than sinking the whole scan; the count is logged."""
         sem = asyncio.Semaphore(concurrency)
 
-        async def one(i: str):
+        async def one(i: str) -> dict[str, Any] | None:
             async with sem:
-                return await self.message_metadata(i, headers)
+                try:
+                    return await self.message_metadata(i, headers)
+                except (HTTPException, ValueError):
+                    return None
 
-        return await asyncio.gather(*(one(i) for i in ids))
+        results = await asyncio.gather(*(one(i) for i in ids))
+        msgs = [m for m in results if m]
+        if len(msgs) < len(ids):
+            log.warning("metadata: %d of %d messages skipped (rate limit or gone)", len(ids) - len(msgs), len(ids))
+        return msgs
 
     # ---- writes ------------------------------------------------------------
 
