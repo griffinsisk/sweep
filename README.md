@@ -1,6 +1,6 @@
 # Sweep
 
-Have you been a long-time Google user and one day logged into Gmail only to find this dreaded message?
+Have you been a long-time Google user and one day logged into Gmail only to find this?
 
 <img src="docs/out-of-storage.png" alt="Gmail banner: Out of storage. Emails will stop on Oct 9, 2026. 15.04 GB of 15 GB used." width="760">
 
